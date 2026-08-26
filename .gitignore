@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Machine Learning datasets/models
+backend/training/datasets/
+*.pcap
+*.pcapng
+
+# Node
+node_modules/
+frontend/dist/
+
+# Environment variables
+.env
+
+# Database temporary files
+*.db-journal
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
