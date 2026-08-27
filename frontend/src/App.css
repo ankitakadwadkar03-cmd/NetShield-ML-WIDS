@@ -445,6 +445,15 @@
   flex-direction: column;
 }
 
+.packets-panel {
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.packets-panel .table-wrap {
+  flex: 1 1 auto;
+}
+
 .table-wrap {
   min-height: 0;
   margin-top: 18px;
@@ -466,6 +475,12 @@ thead {
   top: 0;
   background: #111827;
   z-index: 1;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: #111827;
 }
 
 th,
