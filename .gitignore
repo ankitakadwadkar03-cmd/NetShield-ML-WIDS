@@ -28,3 +28,6 @@ frontend/dist/
 Thumbs.db
 # NetShield runtime scan data
 backend/data/scan_results/
+
+# NetShield runtime packet data
+backend/data/packet_logs/

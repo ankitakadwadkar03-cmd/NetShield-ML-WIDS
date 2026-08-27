@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 SERVICE_NAME="netshield-ml-scanner.service"
+CAPTURE_SERVICE_NAME="netshield-ml-capture.service"
 INTERFACE="${1:-wlan0}"
 
 INSTALL_DIR="/opt/netshield-ml-wids-scanner"
@@ -49,6 +50,9 @@ Type=simple
 WorkingDirectory=${APP_DIR}
 
 Environment="PATH=${VENV_DIR}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Prevent scanner from starting while packet capture is active.
+ExecStartPre=/bin/sh -c '! ${SYSTEMCTL} is-active --quiet ${CAPTURE_SERVICE_NAME}'
 
 ExecStart=${VENV_DIR}/bin/python ${APP_DIR}/wifi_scanner.py --interface ${INTERFACE} --output ${OUTPUT_CSV}
 

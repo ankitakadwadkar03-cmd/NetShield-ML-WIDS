@@ -1,4 +1,4 @@
-"""Control and report NetShield WiFi scanner service state."""
+"""Protected packet-capture service control for NetShield ML WIDS."""
 
 from __future__ import annotations
 
@@ -8,21 +8,30 @@ import subprocess
 from pathlib import Path
 
 from scanner.adapter_manager import read_adapter_status
+from scanner.scanner_service import read_scanner_status
 
 
-SERVICE_NAME = "netshield-ml-scanner.service"
-CAPTURE_SERVICE_NAME = "netshield-ml-capture.service"
+SERVICE_NAME = "netshield-ml-capture.service"
+SERVICE_INTERFACE = "wlan0"
 
-SCANNER_STATUS_JSON = (
+PACKET_LOG_CSV = (
     Path(__file__).resolve().parents[1]
     / "data"
-    / "scan_results"
-    / "scanner_status.json"
+    / "packet_logs"
+    / "wifi_packets.csv"
+)
+
+CAPTURE_STATUS_JSON = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "packet_logs"
+    / "capture_status.json"
 )
 
 
-def _run_systemctl(arguments: list[str]) -> subprocess.CompletedProcess[str]:
-    """Run a systemctl command without prompting for a password."""
+def _run_systemctl(
+    arguments: list[str],
+) -> subprocess.CompletedProcess[str]:
 
     return subprocess.run(
         ["sudo", "-n", "systemctl", *arguments],
@@ -34,7 +43,6 @@ def _run_systemctl(arguments: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _service_exists() -> bool:
-    """Return True when the scanner systemd unit is installed."""
 
     if shutil.which("systemctl") is None:
         return False
@@ -59,53 +67,59 @@ def _service_exists() -> bool:
     )
 
 
+def _read_service_pid() -> int | None:
 
-def _service_is_active(service_name: str) -> bool:
-    """Return True when another protected NetShield service is active."""
+    result = subprocess.run(
+        [
+            "systemctl",
+            "show",
+            SERVICE_NAME,
+            "--property=MainPID",
+            "--value",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
 
     try:
-        result = subprocess.run(
-            [
-                "systemctl",
-                "is-active",
-                service_name,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return False
+        pid = int(result.stdout.strip())
+    except (TypeError, ValueError):
+        return None
 
-    return result.stdout.strip().lower() in {
-        "active",
-        "activating",
-        "deactivating",
-    }
+    return pid if pid > 0 else None
 
-def read_scanner_progress() -> dict:
-    """Read live progress written by wifi_scanner.py."""
+
+def read_capture_progress() -> dict:
 
     empty = {
         "state": "idle",
         "interface": None,
-        "sweep_number": 0,
+        "last_error": "",
+        "packet_count": 0,
+        "session_start_row": 0,
+        "packet_rate": 0.0,
+        "elapsed_seconds": 0.0,
+        "packet_type_counts": {},
+        "started_at": None,
+        "last_packet_at": None,
         "current_channel": None,
-        "channels_completed": 0,
+        "channel_index": 0,
         "total_channels": 0,
         "enabled_channels": [],
-        "session_network_count": 0,
-        "last_sweep_completed_at": None,
+        "sweep_number": 0,
         "updated_at": None,
     }
 
-    if not SCANNER_STATUS_JSON.exists():
+    if not CAPTURE_STATUS_JSON.exists():
         return empty
 
     try:
         payload = json.loads(
-            SCANNER_STATUS_JSON.read_text(encoding="utf-8")
+            CAPTURE_STATUS_JSON.read_text(
+                encoding="utf-8"
+            )
         )
     except (OSError, json.JSONDecodeError):
         return empty
@@ -119,33 +133,32 @@ def read_scanner_progress() -> dict:
     }
 
 
-def read_scanner_status() -> dict:
-    """Return scanner, service and adapter status."""
+def read_capture_status() -> dict:
 
     adapter = read_adapter_status()
-    progress = read_scanner_progress()
+    progress = read_capture_progress()
 
     if not _service_exists():
-        progress = {
-            **progress,
-            "state": "idle",
-            "interface": None,
-            "current_channel": None,
-        }
 
         return {
             "state": "not_configured",
             "running": False,
             "interface": None,
+            "pid": None,
             "message": (
-                "Scanner service has not been configured yet."
+                "Packet-capture service has not been configured yet."
             ),
             "adapter": adapter,
+            "packet_log_found": PACKET_LOG_CSV.exists(),
             "progress": progress,
         }
 
     result = subprocess.run(
-        ["systemctl", "is-active", SERVICE_NAME],
+        [
+            "systemctl",
+            "is-active",
+            SERVICE_NAME,
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -154,15 +167,16 @@ def read_scanner_status() -> dict:
 
     service_state = result.stdout.strip().lower()
 
-    mapping = {
+    state = {
         "active": "running",
         "activating": "starting",
         "deactivating": "stopping",
         "inactive": "idle",
         "failed": "error",
-    }
-
-    state = mapping.get(service_state, "idle")
+    }.get(
+        service_state,
+        "idle",
+    )
 
     running = state in {
         "starting",
@@ -170,61 +184,55 @@ def read_scanner_status() -> dict:
         "stopping",
     }
 
-    # The scanner status JSON can contain the final state from the
-    # previous run. Normalize it against the real systemd state.
     if state == "idle":
         progress = {
             **progress,
             "state": "idle",
             "interface": None,
             "current_channel": None,
-            "channels_completed": 0,
+            "channel_index": 0,
+            "packet_rate": 0.0,
         }
 
-    elif state in {"starting", "running"} and progress.get(
-        "state"
-    ) in {"idle", "stopping"}:
-        progress = {
-            **progress,
-            "state": "starting",
-            "interface": None,
-            "current_channel": None,
-        }
-
-    elif state == "error":
-        progress = {
-            **progress,
-            "state": "error",
-            "current_channel": None,
-        }
-
-    interface = progress.get("interface") if running else None
+    interface = (
+        progress.get("interface")
+        if running
+        else None
+    )
 
     return {
         "state": state,
         "running": running,
         "interface": interface,
+        "pid": _read_service_pid() if running else None,
         "message": {
-            "starting": "WiFi scanner is starting.",
-            "running": "WiFi scanner is running.",
-            "stopping": "WiFi scanner is stopping.",
-            "idle": "WiFi scanner is idle.",
-            "error": "WiFi scanner encountered an error.",
-        }.get(state, "WiFi scanner is idle."),
+            "starting": "Packet capture is starting.",
+            "running": "Packet capture is running.",
+            "stopping": "Packet capture is stopping.",
+            "idle": "Packet capture is idle.",
+            "error": "Packet capture encountered an error.",
+        }.get(
+            state,
+            "Packet capture is idle.",
+        ),
         "adapter": adapter,
+        "packet_log_found": PACKET_LOG_CSV.exists(),
         "progress": progress,
     }
 
 
-def start_scanner(interface: str | None) -> tuple[dict, int]:
-    """Start scanning when an adapter and service are available."""
+def start_capture(
+    interface: str | None,
+) -> tuple[dict, int]:
 
-    if _service_is_active(CAPTURE_SERVICE_NAME):
+    scanner = read_scanner_status()
+
+    if scanner["running"]:
         return {
             "ok": False,
             "state": "service_conflict",
             "message": (
-                "Stop packet capture before starting WiFi scanning."
+                "Stop WiFi scanning before starting packet capture."
             ),
         }, 409
 
@@ -242,35 +250,44 @@ def start_scanner(interface: str | None) -> tuple[dict, int]:
         for item in adapter["interfaces"]
     ]
 
-    selected_interface = interface or interfaces[0]
+    selected = interface or interfaces[0]
 
-    if selected_interface not in interfaces:
+    if selected not in interfaces:
         return {
             "ok": False,
             "state": "invalid_interface",
             "message": (
-                f"Wireless interface '{selected_interface}' "
-                "is not available."
+                f"Wireless interface '{selected}' is unavailable."
             ),
         }, 400
+
+    if selected != SERVICE_INTERFACE:
+        return {
+            "ok": False,
+            "state": "interface_not_configured",
+            "message": (
+                "Packet-capture service is configured for "
+                f"{SERVICE_INTERFACE}, not {selected}."
+            ),
+        }, 409
 
     if not _service_exists():
         return {
             "ok": False,
             "state": "not_configured",
             "message": (
-                "Scanner service is not configured yet."
+                "Packet-capture service is not configured yet."
             ),
         }, 409
 
-    current = read_scanner_status()
+    current = read_capture_status()
 
     if current["running"]:
         return {
             "ok": False,
             "state": current["state"],
-            "message": "WiFi scanner is already running.",
-            "scanner": current,
+            "message": "Packet capture is already running.",
+            "capture": current,
         }, 409
 
     result = _run_systemctl(
@@ -284,35 +301,34 @@ def start_scanner(interface: str | None) -> tuple[dict, int]:
             "message": (
                 result.stderr.strip()
                 or result.stdout.strip()
-                or "Unable to start WiFi scanner."
+                or "Unable to start packet capture."
             ),
         }, 500
 
     return {
         "ok": True,
-        "scanner": read_scanner_status(),
+        "capture": read_capture_status(),
     }, 202
 
 
-def stop_scanner() -> tuple[dict, int]:
-    """Stop the WiFi scanner safely."""
+def stop_capture() -> tuple[dict, int]:
 
     if not _service_exists():
         return {
             "ok": True,
             "state": "not_configured",
             "message": (
-                "Scanner service is not configured yet."
+                "Packet-capture service is not configured yet."
             ),
         }, 200
 
-    current = read_scanner_status()
+    current = read_capture_status()
 
     if not current["running"]:
         return {
             "ok": True,
-            "scanner": current,
-            "message": "WiFi scanner is already stopped.",
+            "capture": current,
+            "message": "Packet capture is already stopped.",
         }, 200
 
     result = _run_systemctl(
@@ -326,11 +342,11 @@ def stop_scanner() -> tuple[dict, int]:
             "message": (
                 result.stderr.strip()
                 or result.stdout.strip()
-                or "Unable to stop WiFi scanner."
+                or "Unable to stop packet capture."
             ),
         }, 500
 
     return {
         "ok": True,
-        "scanner": read_scanner_status(),
+        "capture": read_capture_status(),
     }, 200

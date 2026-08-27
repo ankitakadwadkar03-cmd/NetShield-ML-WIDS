@@ -8,6 +8,12 @@ from scanner.scanner_service import (
     start_scanner,
     stop_scanner,
 )
+from packet_capture.packet_reader import read_packet_feed
+from packet_capture.capture_service import (
+    read_capture_status,
+    start_capture,
+    stop_capture,
+)
 
 
 app = Flask(__name__)
@@ -63,6 +69,47 @@ def scanner_start():
 @app.post("/api/scanner/stop")
 def scanner_stop():
     response, status_code = stop_scanner()
+
+    return jsonify(response), status_code
+
+
+
+@app.get("/api/packets")
+def packets():
+    from flask import request
+
+    limit = request.args.get(
+        "limit",
+        default=50,
+        type=int,
+    )
+
+    return jsonify(
+        read_packet_feed(limit=limit)
+    )
+
+
+@app.get("/api/capture/status")
+def capture_status():
+    return jsonify(read_capture_status())
+
+
+@app.post("/api/capture/start")
+def capture_start():
+    from flask import request
+
+    data = request.get_json(silent=True) or {}
+
+    response, status_code = start_capture(
+        data.get("interface")
+    )
+
+    return jsonify(response), status_code
+
+
+@app.post("/api/capture/stop")
+def capture_stop():
+    response, status_code = stop_capture()
 
     return jsonify(response), status_code
 
