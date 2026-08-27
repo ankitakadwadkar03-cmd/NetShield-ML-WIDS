@@ -20,6 +20,7 @@ const dashboardCards = [
 
 const API_BASE_URL = 'http://127.0.0.1:5000/api'
 const ACTIVE_SCANNER_STATES = ['starting', 'running', 'stopping']
+const ACTIVE_CAPTURE_STATES = ['starting', 'running', 'stopping']
 
 const getValue = (source, keys) => {
   for (const key of keys) {
@@ -51,10 +52,18 @@ const formatValue = (value) => value ?? 'Not reported'
 
 const normalizeScannerStatus = (payload) => payload?.scanner ?? payload?.status ?? payload ?? {}
 
+const normalizeCaptureStatus = (payload) => payload?.capture ?? payload?.status ?? payload ?? {}
+
 const getInterfaceName = (source) => getValue(source, ['name', 'interface', 'interface_name'])
 
 const getScannerState = (scannerStatus) =>
   String(getValue(scannerStatus, ['state', 'scanner_state', 'status']) ?? 'stopped').toLowerCase()
+
+const getCaptureState = (captureStatus) =>
+  String(getValue(captureStatus, ['state', 'capture_state', 'status']) ?? 'stopped').toLowerCase()
+
+const normalizeCounts = (counts) =>
+  counts && typeof counts === 'object' && !Array.isArray(counts) ? counts : {}
 
 function App() {
   const [activeView, setActiveView] = useState('Dashboard')
@@ -62,10 +71,16 @@ function App() {
   const [adapterState, setAdapterState] = useState(null)
   const [networks, setNetworks] = useState([])
   const [scannerStatus, setScannerStatus] = useState({})
+  const [captureStatus, setCaptureStatus] = useState({})
+  const [packets, setPackets] = useState([])
   const [selectedInterfaceName, setSelectedInterfaceName] = useState('')
+  const [selectedCaptureInterfaceName, setSelectedCaptureInterfaceName] = useState('')
   const [wifiScanLoading, setWifiScanLoading] = useState(false)
   const [wifiScanError, setWifiScanError] = useState('')
   const [scannerActionLoading, setScannerActionLoading] = useState(false)
+  const [liveMonitorLoading, setLiveMonitorLoading] = useState(false)
+  const [liveMonitorError, setLiveMonitorError] = useState('')
+  const [captureActionLoading, setCaptureActionLoading] = useState(false)
 
   const fetchJson = async (path, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${path}`, options)
@@ -79,6 +94,14 @@ function App() {
 
   const updateSelectedInterface = (availableInterfaces) => {
     setSelectedInterfaceName((currentInterfaceName) => {
+      if (availableInterfaces.some((adapter) => getInterfaceName(adapter) === currentInterfaceName)) {
+        return currentInterfaceName
+      }
+
+      return getInterfaceName(availableInterfaces[0]) ?? ''
+    })
+
+    setSelectedCaptureInterfaceName((currentInterfaceName) => {
       if (availableInterfaces.some((adapter) => getInterfaceName(adapter) === currentInterfaceName)) {
         return currentInterfaceName
       }
@@ -110,6 +133,20 @@ function App() {
     return normalizedStatus
   }
 
+  const loadCaptureStatus = async (signal) => {
+    const statusPayload = await fetchJson('/capture/status', { signal })
+    const normalizedStatus = normalizeCaptureStatus(statusPayload)
+
+    setCaptureStatus(normalizedStatus)
+
+    return normalizedStatus
+  }
+
+  const loadPackets = async (signal) => {
+    const packetsPayload = await fetchJson('/packets?limit=20', { signal })
+    setPackets(normalizeList(packetsPayload, 'packets'))
+  }
+
   useEffect(() => {
     if (activeView !== 'WiFi Scan') {
       return
@@ -122,10 +159,11 @@ function App() {
       setWifiScanError('')
 
       try {
-        const [interfacesPayload, networksPayload, statusPayload] = await Promise.all([
+        const [interfacesPayload, networksPayload, statusPayload, capturePayload] = await Promise.all([
           fetchJson('/interfaces', { signal: controller.signal }),
           fetchJson('/networks', { signal: controller.signal }),
           fetchJson('/scanner/status', { signal: controller.signal }),
+          fetchJson('/capture/status', { signal: controller.signal }),
         ])
 
         const availableInterfaces = normalizeList(interfacesPayload, 'interfaces')
@@ -134,6 +172,7 @@ function App() {
         setAdapterState(getValue(interfacesPayload, ['state']))
         setNetworks(normalizeList(networksPayload, 'networks'))
         setScannerStatus(normalizeScannerStatus(statusPayload))
+        setCaptureStatus(normalizeCaptureStatus(capturePayload))
         updateSelectedInterface(availableInterfaces)
       } catch (error) {
         if (error.name === 'AbortError') {
@@ -158,6 +197,97 @@ function App() {
   }, [activeView])
 
   useEffect(() => {
+    if (activeView !== 'Live Monitor') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadLiveMonitorData = async () => {
+      setLiveMonitorLoading(true)
+      setLiveMonitorError('')
+
+      try {
+        const [interfacesPayload, scannerPayload, capturePayload] = await Promise.all([
+          fetchJson('/interfaces', { signal: controller.signal }),
+          fetchJson('/scanner/status', { signal: controller.signal }),
+          fetchJson('/capture/status', { signal: controller.signal }),
+        ])
+        const availableInterfaces = normalizeList(interfacesPayload, 'interfaces')
+        const normalizedCaptureStatus = normalizeCaptureStatus(capturePayload)
+
+        setInterfaces(availableInterfaces)
+        setAdapterState(getValue(interfacesPayload, ['state']))
+        setScannerStatus(normalizeScannerStatus(scannerPayload))
+        setCaptureStatus(normalizedCaptureStatus)
+        updateSelectedInterface(availableInterfaces)
+
+        if (ACTIVE_CAPTURE_STATES.includes(getCaptureState(normalizedCaptureStatus))) {
+          await loadPackets(controller.signal)
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return
+        }
+
+        setPackets([])
+        setLiveMonitorError(
+          'Unable to connect to the NetShield capture backend at http://127.0.0.1:5000. Start the Flask server and try again.',
+        )
+      } finally {
+        if (!controller.signal.aborted) {
+          setLiveMonitorLoading(false)
+        }
+      }
+    }
+
+    loadLiveMonitorData()
+
+    return () => controller.abort()
+  }, [activeView])
+
+  useEffect(() => {
+    if (activeView !== 'Live Monitor') {
+      return
+    }
+
+    let activePollController = null
+
+    const pollLiveMonitor = () => {
+      activePollController?.abort()
+      activePollController = new AbortController()
+      const controller = activePollController
+
+      Promise.all([
+        loadCaptureStatus(controller.signal),
+        loadScannerStatus(controller.signal),
+        loadInterfaces(controller.signal),
+      ])
+        .then(([latestCaptureStatus]) => {
+          if (ACTIVE_CAPTURE_STATES.includes(getCaptureState(latestCaptureStatus))) {
+            return loadPackets(controller.signal)
+          }
+
+          return null
+        })
+        .catch((error) => {
+          if (error.name !== 'AbortError') {
+            setLiveMonitorError(
+              'Unable to refresh capture data from http://127.0.0.1:5000. Check that the Flask backend is running.',
+            )
+          }
+        })
+    }
+
+    const intervalId = setInterval(pollLiveMonitor, 2000)
+
+    return () => {
+      activePollController?.abort()
+      clearInterval(intervalId)
+    }
+  }, [activeView])
+
+  useEffect(() => {
     if (activeView !== 'WiFi Scan') {
       return
     }
@@ -169,7 +299,11 @@ function App() {
       activePollController = new AbortController()
       const controller = activePollController
 
-      Promise.all([loadScannerStatus(controller.signal), loadInterfaces(controller.signal)])
+      Promise.all([
+        loadScannerStatus(controller.signal),
+        loadInterfaces(controller.signal),
+        loadCaptureStatus(controller.signal),
+      ])
         .then(([latestScannerStatus]) => {
           if (ACTIVE_SCANNER_STATES.includes(getScannerState(latestScannerStatus))) {
             return loadNetworks(controller.signal)
@@ -204,14 +338,42 @@ function App() {
   const isScannerStarting = scannerState === 'starting'
   const isScannerRunning = scannerState === 'running'
   const isScannerStopping = scannerState === 'stopping'
+  const selectableInterfaces = interfaces.filter((adapter) => getInterfaceName(adapter))
+  const captureAdapter =
+    interfaces.find((adapter) => getInterfaceName(adapter) === selectedCaptureInterfaceName) ??
+    interfaces[0] ??
+    null
+  const selectedCaptureInterface = getInterfaceName(captureAdapter)
+  const captureState = getCaptureState(captureStatus)
+  const isCaptureActive = ACTIVE_CAPTURE_STATES.includes(captureState)
+  const isCaptureStarting = captureState === 'starting'
+  const isCaptureRunning = captureState === 'running'
+  const isCaptureStopping = captureState === 'stopping'
+  const captureStats = captureStatus.stats ?? captureStatus.statistics ?? captureStatus
+  const captureProgress = captureStatus.progress ?? captureStats.progress ?? captureStats
+  const packetTypeCounts = normalizeCounts(
+    captureStatus.packet_type_counts ??
+      captureStats.packet_type_counts ??
+      captureStats.packet_counts ??
+      captureStats.type_counts ??
+      {},
+  )
   const startScanDisabled =
     !selectedInterface ||
     scannerActionLoading ||
+    isCaptureActive ||
     isScannerStarting ||
     isScannerRunning ||
     isScannerStopping
   const stopScanDisabled = !isScannerActive || scannerActionLoading
-  const selectableInterfaces = interfaces.filter((adapter) => getInterfaceName(adapter))
+  const startCaptureDisabled =
+    !selectedCaptureInterface ||
+    isScannerActive ||
+    captureActionLoading ||
+    isCaptureStarting ||
+    isCaptureRunning ||
+    isCaptureStopping
+  const stopCaptureDisabled = !isCaptureActive || captureActionLoading
 
   const handleStartScan = async () => {
     if (startScanDisabled) {
@@ -252,6 +414,47 @@ function App() {
       setWifiScanError('Unable to stop the scanner. Check that the Flask backend is running.')
     } finally {
       setScannerActionLoading(false)
+    }
+  }
+
+  const handleStartCapture = async () => {
+    if (startCaptureDisabled) {
+      return
+    }
+
+    setCaptureActionLoading(true)
+    setLiveMonitorError('')
+
+    try {
+      await fetchJson('/capture/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interface: selectedCaptureInterface }),
+      })
+      await loadCaptureStatus()
+      await loadPackets()
+    } catch {
+      setLiveMonitorError('Unable to start packet capture. Check the selected interface and Flask backend logs.')
+    } finally {
+      setCaptureActionLoading(false)
+    }
+  }
+
+  const handleStopCapture = async () => {
+    if (stopCaptureDisabled) {
+      return
+    }
+
+    setCaptureActionLoading(true)
+    setLiveMonitorError('')
+
+    try {
+      await fetchJson('/capture/stop', { method: 'POST' })
+      await Promise.all([loadCaptureStatus(), loadPackets(), loadInterfaces()])
+    } catch {
+      setLiveMonitorError('Unable to stop packet capture. Check that the Flask backend is running.')
+    } finally {
+      setCaptureActionLoading(false)
     }
   }
 
@@ -483,6 +686,185 @@ function App() {
                   </div>
                 ) : (
                   <p className="empty-state">No scanned networks are available.</p>
+                )}
+              </section>
+            </section>
+          ) : activeView === 'Live Monitor' ? (
+            <section className="live-monitor-view" aria-label="Live packet monitor">
+              {liveMonitorError ? <p className="error-banner">{liveMonitorError}</p> : null}
+
+              <section className="panel capture-control-panel">
+                <div className="panel-header">
+                  <h2>Capture Control</h2>
+                  <div className="scan-actions">
+                    <button
+                      className="scan-button primary"
+                      disabled={startCaptureDisabled}
+                      onClick={handleStartCapture}
+                      type="button"
+                    >
+                      Start Capture
+                    </button>
+                    <button
+                      className="scan-button"
+                      disabled={stopCaptureDisabled}
+                      onClick={handleStopCapture}
+                      type="button"
+                    >
+                      Stop Capture
+                    </button>
+                  </div>
+                </div>
+
+                {liveMonitorLoading ? (
+                  <p className="muted-text">Loading capture controls...</p>
+                ) : captureAdapter ? (
+                  <>
+                    {selectableInterfaces.length > 1 ? (
+                      <label className="interface-select">
+                        <span>Selected Interface</span>
+                        <select
+                          onChange={(event) => setSelectedCaptureInterfaceName(event.target.value)}
+                          value={selectedCaptureInterfaceName}
+                        >
+                          {selectableInterfaces.map((adapter) => {
+                            const adapterName = getInterfaceName(adapter)
+
+                            return (
+                              <option key={adapterName} value={adapterName}>
+                                {adapterName}
+                              </option>
+                            )
+                          })}
+                        </select>
+                      </label>
+                    ) : null}
+                    <dl className="status-list capture-control-list">
+                      <div>
+                        <dt>Capture State</dt>
+                        <dd>{formatValue(getValue(captureStatus, ['state', 'capture_state', 'status']))}</dd>
+                      </div>
+                      <div>
+                        <dt>Interface</dt>
+                        <dd>
+                          {formatValue(
+                            getValue(captureStatus, ['interface', 'interface_name']) ??
+                              getValue(captureProgress, ['interface']) ??
+                              selectedCaptureInterface,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Mode</dt>
+                        <dd>{formatValue(getValue(captureStatus, ['mode']) ?? getValue(captureAdapter, ['mode']))}</dd>
+                      </div>
+                      <div>
+                        <dt>PID</dt>
+                        <dd>{formatValue(getValue(captureStatus, ['pid', 'process_id']))}</dd>
+                      </div>
+                    </dl>
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <p>No wireless adapter detected.</p>
+                    <p>Connect a compatible monitor-mode WiFi adapter to start capture.</p>
+                  </div>
+                )}
+              </section>
+
+              <section className="panel capture-stats-panel">
+                <h2>Live Capture Statistics</h2>
+                <dl className="status-list capture-stats-list">
+                  <div>
+                    <dt>Session Packets</dt>
+                    <dd>{formatValue(getValue(captureStats, ['session_packets', 'packets']))}</dd>
+                  </div>
+                  <div>
+                    <dt>Packet Rate</dt>
+                    <dd>{formatValue(getValue(captureStats, ['packet_rate', 'packets_per_second']))}</dd>
+                  </div>
+                  <div>
+                    <dt>Current Channel</dt>
+                    <dd>{formatValue(getValue(captureProgress, ['current_channel', 'channel']))}</dd>
+                  </div>
+                  <div>
+                    <dt>Channel Sweep</dt>
+                    <dd>
+                      {formatValue(getValue(captureProgress, ['channels_completed', 'completed_channels']))}
+                      {' / '}
+                      {formatValue(getValue(captureProgress, ['total_channels', 'channels_total']))}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Sweep Number</dt>
+                    <dd>{formatValue(getValue(captureProgress, ['sweep_number', 'sweep']))}</dd>
+                  </div>
+                  <div>
+                    <dt>Elapsed Time</dt>
+                    <dd>{formatValue(getValue(captureStats, ['elapsed_time', 'elapsed']))}</dd>
+                  </div>
+                  <div>
+                    <dt>Last Packet</dt>
+                    <dd>{formatValue(getValue(captureStats, ['last_packet', 'last_packet_time']))}</dd>
+                  </div>
+                </dl>
+
+                <div className="packet-counts">
+                  <p className="section-label">Packet Type Counts</p>
+                  {Object.keys(packetTypeCounts).length > 0 ? (
+                    <div className="count-grid">
+                      {Object.entries(packetTypeCounts).map(([packetType, count]) => (
+                        <div className="count-pill" key={packetType}>
+                          <span>{packetType}</span>
+                          <strong>{formatValue(count)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted-text">No packet type counts reported yet.</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="panel packets-panel">
+                <h2>Recent Packets</h2>
+                {liveMonitorLoading ? (
+                  <p className="muted-text">Loading recent packets...</p>
+                ) : packets.length > 0 ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Packet Type</th>
+                          <th>Source MAC</th>
+                          <th>Destination MAC</th>
+                          <th>BSSID</th>
+                          <th>Frame Type</th>
+                          <th>Signal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {packets.map((packet, index) => (
+                          <tr key={getValue(packet, ['id', 'packet_id']) ?? index}>
+                            <td>{formatValue(getValue(packet, ['time', 'timestamp', 'captured_at']))}</td>
+                            <td>{formatValue(getValue(packet, ['packet_type', 'type', 'classification']))}</td>
+                            <td>{formatValue(getValue(packet, ['source_mac', 'src_mac', 'source']))}</td>
+                            <td>
+                              {formatValue(
+                                getValue(packet, ['destination_mac', 'dst_mac', 'destination']),
+                              )}
+                            </td>
+                            <td>{formatValue(getValue(packet, ['bssid']))}</td>
+                            <td>{formatValue(getValue(packet, ['frame_type', 'frame']))}</td>
+                            <td>{formatValue(getValue(packet, ['signal', 'rssi']))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="empty-state">No captured packets are available.</p>
                 )}
               </section>
             </section>
