@@ -59,6 +59,7 @@ const getScannerState = (scannerStatus) =>
 function App() {
   const [activeView, setActiveView] = useState('Dashboard')
   const [interfaces, setInterfaces] = useState([])
+  const [adapterState, setAdapterState] = useState(null)
   const [networks, setNetworks] = useState([])
   const [scannerStatus, setScannerStatus] = useState({})
   const [selectedInterfaceName, setSelectedInterfaceName] = useState('')
@@ -90,6 +91,7 @@ function App() {
     const interfacesPayload = await fetchJson('/interfaces', { signal })
     const availableInterfaces = normalizeList(interfacesPayload, 'interfaces')
 
+    setAdapterState(getValue(interfacesPayload, ['state']))
     setInterfaces(availableInterfaces)
     updateSelectedInterface(availableInterfaces)
   }
@@ -129,6 +131,7 @@ function App() {
         const availableInterfaces = normalizeList(interfacesPayload, 'interfaces')
 
         setInterfaces(availableInterfaces)
+        setAdapterState(getValue(interfacesPayload, ['state']))
         setNetworks(normalizeList(networksPayload, 'networks'))
         setScannerStatus(normalizeScannerStatus(statusPayload))
         updateSelectedInterface(availableInterfaces)
@@ -196,6 +199,7 @@ function App() {
     interfaces.find((adapter) => getInterfaceName(adapter) === selectedInterfaceName) ?? interfaces[0] ?? null
   const selectedInterface = getInterfaceName(wirelessAdapter)
   const scannerState = getScannerState(scannerStatus)
+  const scannerProgress = scannerStatus.progress ?? {}
   const isScannerActive = ACTIVE_SCANNER_STATES.includes(scannerState)
   const isScannerStarting = scannerState === 'starting'
   const isScannerRunning = scannerState === 'running'
@@ -243,8 +247,7 @@ function App() {
     try {
       await fetchJson('/scanner/stop', { method: 'POST' })
       await Promise.all([loadScannerStatus(), loadNetworks()])
-      const interfacesPayload = await fetchJson('/interfaces')
-      setInterfaces(normalizeList(interfacesPayload, 'interfaces'))
+      await loadInterfaces()
     } catch {
       setWifiScanError('Unable to stop the scanner. Check that the Flask backend is running.')
     } finally {
@@ -379,7 +382,7 @@ function App() {
                     <dl className="status-list">
                       <div>
                         <dt>Adapter Status</dt>
-                        <dd>{formatValue(getValue(wirelessAdapter, ['status', 'adapter_status']))}</dd>
+                        <dd>{formatValue(adapterState)}</dd>
                       </div>
                       <div>
                         <dt>Interface Name</dt>
@@ -412,42 +415,27 @@ function App() {
                   </div>
                   <div>
                     <dt>Interface</dt>
-                    <dd>{formatValue(getValue(scannerStatus, ['interface', 'interface_name']))}</dd>
+                    <dd>{formatValue(getValue(scannerProgress, ['interface']))}</dd>
                   </div>
                   <div>
                     <dt>Current Channel</dt>
-                    <dd>{formatValue(getValue(scannerStatus, ['current_channel', 'channel']))}</dd>
+                    <dd>{formatValue(getValue(scannerProgress, ['current_channel']))}</dd>
                   </div>
                   <div>
                     <dt>Sweep Number</dt>
-                    <dd>{formatValue(getValue(scannerStatus, ['sweep_number', 'sweep']))}</dd>
+                    <dd>{formatValue(getValue(scannerProgress, ['sweep_number']))}</dd>
                   </div>
                   <div>
                     <dt>Channels Completed</dt>
                     <dd>
-                      {formatValue(
-                        getValue(scannerStatus, [
-                          'channels_completed',
-                          'completed_channels',
-                        ]),
-                      )}
+                      {formatValue(getValue(scannerProgress, ['channels_completed']))}
                       {' / '}
-                      {formatValue(
-                        getValue(scannerStatus, ['total_channels', 'channels_total']),
-                      )}
+                      {formatValue(getValue(scannerProgress, ['total_channels']))}
                     </dd>
                   </div>
                   <div>
                     <dt>Networks Discovered</dt>
-                    <dd>
-                      {formatValue(
-                        getValue(scannerStatus, [
-                          'networks_discovered',
-                          'network_count',
-                          'networks_found',
-                        ]),
-                      )}
-                    </dd>
+                    <dd>{formatValue(getValue(scannerProgress, ['session_network_count']))}</dd>
                   </div>
                 </dl>
               </section>
@@ -478,7 +466,7 @@ function App() {
                             <td>{formatValue(getValue(network, ['vendor', 'Vendor']))}</td>
                             <td>{formatValue(getValue(network, ['channel', 'Channel']))}</td>
                             <td>{formatValue(getValue(network, ['signal', 'Signal']))}</td>
-                            <td>{formatValue(getValue(network, ['security', 'Security']))}</td>
+                            <td>{formatValue(getValue(network, ['encryption']))}</td>
                             <td>
                               {formatValue(
                                 getValue(network, [
