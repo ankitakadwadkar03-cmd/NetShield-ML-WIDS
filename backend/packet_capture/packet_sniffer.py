@@ -479,7 +479,10 @@ class LivePacketMonitor:
         self._last_status_write = now_monotonic
 
     def _handle_packet(self, packet: Any) -> None:
-        analysis = self.analyzer.analyze_packet(packet)
+        analysis = self.analyzer.analyze_packet(
+            packet,
+            capture_channel=self.current_channel,
+        )
 
         if analysis is None:
             return
