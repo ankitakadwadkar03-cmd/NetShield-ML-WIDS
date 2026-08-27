@@ -50,6 +50,8 @@ const normalizeList = (payload, key) => {
 
 const formatValue = (value) => value ?? 'Not reported'
 
+const formatWithUnit = (value, unit) => (value === undefined || value === null ? 'Not reported' : `${value} ${unit}`)
+
 const normalizeScannerStatus = (payload) => payload?.scanner ?? payload?.status ?? payload ?? {}
 
 const normalizeCaptureStatus = (payload) => payload?.capture ?? payload?.status ?? payload ?? {}
@@ -349,15 +351,8 @@ function App() {
   const isCaptureStarting = captureState === 'starting'
   const isCaptureRunning = captureState === 'running'
   const isCaptureStopping = captureState === 'stopping'
-  const captureStats = captureStatus.stats ?? captureStatus.statistics ?? captureStatus
-  const captureProgress = captureStatus.progress ?? captureStats.progress ?? captureStats
-  const packetTypeCounts = normalizeCounts(
-    captureStatus.packet_type_counts ??
-      captureStats.packet_type_counts ??
-      captureStats.packet_counts ??
-      captureStats.type_counts ??
-      {},
-  )
+  const captureProgress = captureStatus.progress ?? {}
+  const packetTypeCounts = normalizeCounts(captureProgress.packet_type_counts)
   const startScanDisabled =
     !selectedInterface ||
     scannerActionLoading ||
@@ -777,35 +772,35 @@ function App() {
                 <dl className="status-list capture-stats-list">
                   <div>
                     <dt>Session Packets</dt>
-                    <dd>{formatValue(getValue(captureStats, ['session_packets', 'packets']))}</dd>
+                    <dd>{formatValue(getValue(captureProgress, ['packet_count']))}</dd>
                   </div>
                   <div>
                     <dt>Packet Rate</dt>
-                    <dd>{formatValue(getValue(captureStats, ['packet_rate', 'packets_per_second']))}</dd>
+                    <dd>{formatWithUnit(getValue(captureProgress, ['packet_rate']), 'pkt/s')}</dd>
                   </div>
                   <div>
                     <dt>Current Channel</dt>
-                    <dd>{formatValue(getValue(captureProgress, ['current_channel', 'channel']))}</dd>
+                    <dd>{formatValue(getValue(captureProgress, ['current_channel']))}</dd>
                   </div>
                   <div>
                     <dt>Channel Sweep</dt>
                     <dd>
-                      {formatValue(getValue(captureProgress, ['channels_completed', 'completed_channels']))}
+                      {formatValue(getValue(captureProgress, ['channel_index']))}
                       {' / '}
-                      {formatValue(getValue(captureProgress, ['total_channels', 'channels_total']))}
+                      {formatValue(getValue(captureProgress, ['total_channels']))}
                     </dd>
                   </div>
                   <div>
                     <dt>Sweep Number</dt>
-                    <dd>{formatValue(getValue(captureProgress, ['sweep_number', 'sweep']))}</dd>
+                    <dd>{formatValue(getValue(captureProgress, ['sweep_number']))}</dd>
                   </div>
                   <div>
                     <dt>Elapsed Time</dt>
-                    <dd>{formatValue(getValue(captureStats, ['elapsed_time', 'elapsed']))}</dd>
+                    <dd>{formatWithUnit(getValue(captureProgress, ['elapsed_seconds']), 'seconds')}</dd>
                   </div>
                   <div>
                     <dt>Last Packet</dt>
-                    <dd>{formatValue(getValue(captureStats, ['last_packet', 'last_packet_time']))}</dd>
+                    <dd>{formatValue(getValue(captureProgress, ['last_packet_at']))}</dd>
                   </div>
                 </dl>
 
@@ -857,7 +852,7 @@ function App() {
                             </td>
                             <td>{formatValue(getValue(packet, ['bssid']))}</td>
                             <td>{formatValue(getValue(packet, ['frame_type', 'frame']))}</td>
-                            <td>{formatValue(getValue(packet, ['signal', 'rssi']))}</td>
+                            <td>{formatWithUnit(getValue(packet, ['signal_strength']), 'dBm')}</td>
                           </tr>
                         ))}
                       </tbody>
