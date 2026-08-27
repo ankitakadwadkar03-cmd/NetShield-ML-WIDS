@@ -31,3 +31,6 @@ backend/data/scan_results/
 
 # NetShield runtime packet data
 backend/data/packet_logs/
+
+backend/ml/data/raw/
+backend/ml/data/processed/
