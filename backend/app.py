@@ -3,6 +3,11 @@ from flask_cors import CORS
 
 from scanner.adapter_manager import read_adapter_status
 from scanner.network_reader import read_networks
+from scanner.scanner_service import (
+    read_scanner_status,
+    start_scanner,
+    stop_scanner,
+)
 
 
 app = Flask(__name__)
@@ -34,6 +39,32 @@ def networks():
             "networks": network_rows,
         }
     )
+
+
+
+@app.get("/api/scanner/status")
+def scanner_status():
+    return jsonify(read_scanner_status())
+
+
+@app.post("/api/scanner/start")
+def scanner_start():
+    from flask import request
+
+    data = request.get_json(silent=True) or {}
+
+    response, status_code = start_scanner(
+        data.get("interface")
+    )
+
+    return jsonify(response), status_code
+
+
+@app.post("/api/scanner/stop")
+def scanner_stop():
+    response, status_code = stop_scanner()
+
+    return jsonify(response), status_code
 
 
 if __name__ == "__main__":

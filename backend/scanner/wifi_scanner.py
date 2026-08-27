@@ -22,7 +22,7 @@ from csv_logger import save_to_csv
 from network_parser import extract_network_details
 
 
-DEFAULT_CSV_PATH = Path("scan_results/wifi_scan_results.csv")
+DEFAULT_CSV_PATH = Path("backend/data/scan_results/wifi_scan_results.csv")
 DEFAULT_CHANNELS_2GHZ = list(range(1, 12))
 CHANNEL_DWELL_SECONDS = 1.5
 
