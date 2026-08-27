@@ -97,8 +97,16 @@ def read_scanner_status() -> dict:
     """Return scanner, service and adapter status."""
 
     adapter = read_adapter_status()
+    progress = read_scanner_progress()
 
     if not _service_exists():
+        progress = {
+            **progress,
+            "state": "idle",
+            "interface": None,
+            "current_channel": None,
+        }
+
         return {
             "state": "not_configured",
             "running": False,
@@ -107,7 +115,7 @@ def read_scanner_status() -> dict:
                 "Scanner service has not been configured yet."
             ),
             "adapter": adapter,
-            "progress": read_scanner_progress(),
+            "progress": progress,
         }
 
     result = subprocess.run(
@@ -129,20 +137,47 @@ def read_scanner_status() -> dict:
     }
 
     state = mapping.get(service_state, "idle")
+
     running = state in {
         "starting",
         "running",
         "stopping",
     }
 
+    # The scanner status JSON can contain the final state from the
+    # previous run. Normalize it against the real systemd state.
+    if state == "idle":
+        progress = {
+            **progress,
+            "state": "idle",
+            "interface": None,
+            "current_channel": None,
+            "channels_completed": 0,
+        }
+
+    elif state in {"starting", "running"} and progress.get(
+        "state"
+    ) in {"idle", "stopping"}:
+        progress = {
+            **progress,
+            "state": "starting",
+            "interface": None,
+            "current_channel": None,
+        }
+
+    elif state == "error":
+        progress = {
+            **progress,
+            "state": "error",
+            "current_channel": None,
+        }
+
+    interface = progress.get("interface") if running else None
+
     return {
         "state": state,
         "running": running,
-        "interface": (
-            read_scanner_progress().get("interface")
-            if running
-            else None
-        ),
+        "interface": interface,
         "message": {
             "starting": "WiFi scanner is starting.",
             "running": "WiFi scanner is running.",
@@ -151,7 +186,7 @@ def read_scanner_status() -> dict:
             "error": "WiFi scanner encountered an error.",
         }.get(state, "WiFi scanner is idle."),
         "adapter": adapter,
-        "progress": read_scanner_progress(),
+        "progress": progress,
     }
 
 

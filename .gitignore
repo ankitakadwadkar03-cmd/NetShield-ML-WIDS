@@ -26,3 +26,5 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+# NetShield runtime scan data
+backend/data/scan_results/
