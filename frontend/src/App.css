@@ -446,12 +446,47 @@
 }
 
 .packets-panel {
-  flex: 1 1 0;
-  overflow: hidden;
+  flex: 0 0 260px;
+  min-height: 260px;
 }
 
 .packets-panel .table-wrap {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
+  height: 220px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.packets-panel table {
+  display: block;
+}
+
+.packets-panel thead,
+.packets-panel tbody {
+  display: block;
+  min-width: 840px;
+}
+
+.packets-panel tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.packets-panel tbody {
+  height: 172px;
+  overflow-y: scroll;
+}
+
+.packets-panel thead tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.packets-panel th,
+.packets-panel td {
+  width: 14.285%;
 }
 
 .table-wrap {
