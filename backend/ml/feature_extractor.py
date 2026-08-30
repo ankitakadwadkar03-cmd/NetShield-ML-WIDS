@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .feature_schema import FEATURE_NAMES
 from typing import Any
 
 
