@@ -49,7 +49,7 @@ def _safe_float(value: str | None) -> float | None:
 
 
 def read_packets(
-    limit: int = 50,
+    limit: int | None = 50,
     session_start_row: int | None = None,
 ) -> list[dict]:
     """Return the most recent captured WiFi packets."""
@@ -57,7 +57,10 @@ def read_packets(
     if not PACKET_LOG_CSV.exists():
         return []
 
-    safe_limit = max(1, min(int(limit), 500))
+    if limit is None:
+        safe_limit = None
+    else:
+        safe_limit = max(1, min(int(limit), 500))
 
     start_row = (
         max(0, int(session_start_row))
