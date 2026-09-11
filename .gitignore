@@ -34,3 +34,6 @@ backend/data/packet_logs/
 
 backend/ml/data/raw/
 backend/ml/data/processed/
+
+# Generated AWID3 preprocessing/training data
+backend/data/*.csv
