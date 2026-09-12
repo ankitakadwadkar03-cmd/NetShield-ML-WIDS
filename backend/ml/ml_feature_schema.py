@@ -26,6 +26,14 @@ ML_FEATURE_NAMES = [
     "unique_bssids",
     "retry_count",
     "retry_ratio",
+    "deauth_per_second",
+    "disassociation_per_second",
+    "reassociation_per_second",
+    "beacon_per_second",
+    "management_ratio",
+    "control_ratio",
+    "data_ratio",
+    "clients_per_bssid",
 ]
 
 

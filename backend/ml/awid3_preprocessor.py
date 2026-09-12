@@ -16,12 +16,12 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 try:
+    from .extracted_feature_schema import EXTRACTED_FEATURE_NAMES
     from .feature_extractor import extract_window_features
-    from .feature_schema import FEATURE_NAMES
 except ImportError:  # pragma: no cover - supports direct script execution.
     sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from backend.ml.extracted_feature_schema import EXTRACTED_FEATURE_NAMES
     from backend.ml.feature_extractor import extract_window_features
-    from backend.ml.feature_schema import FEATURE_NAMES
 
 
 DEFAULT_WINDOW_SECONDS = 5.0
@@ -361,7 +361,10 @@ def _feature_row_for_window(
     window_seconds: float,
 ) -> dict[str, int | float | None]:
     features = extract_window_features(packets, window_seconds=window_seconds)
-    ordered_row = {feature_name: features[feature_name] for feature_name in FEATURE_NAMES}
+    ordered_row = {
+        feature_name: features[feature_name]
+        for feature_name in EXTRACTED_FEATURE_NAMES
+    }
     ordered_row[OUTPUT_LABEL_COLUMN] = label
     return ordered_row
 
@@ -412,7 +415,7 @@ def process_awid3_dataset(
 
     output_path = Path(output_csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [*FEATURE_NAMES, OUTPUT_LABEL_COLUMN]
+    fieldnames = [*EXTRACTED_FEATURE_NAMES, OUTPUT_LABEL_COLUMN]
     total_windows = 0
 
     with output_path.open("w", newline="", encoding="utf-8") as output_file:

@@ -1,8 +1,8 @@
-"""Build the first NetShield AWID3 binary training dataset.
+"""Build the NetShield AWID3 binary ML training dataset.
 
 This script processes one or more AWID3 CSV files through the existing AWID3
-preprocessor, converts each 20-feature extraction window into the authoritative
-17-feature first-model vector, and writes one combined training CSV.
+preprocessor, converts each 28-feature extraction window into the authoritative
+25-feature Model v2 vector, and writes one combined training CSV.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ try:
         OUTPUT_LABEL_COLUMN,
         process_awid3_csv_file,
     )
-    from .feature_schema import FEATURE_NAMES
+    from .extracted_feature_schema import EXTRACTED_FEATURE_NAMES
     from .ml_feature_schema import ML_FEATURE_COUNT, ML_FEATURE_NAMES
     from .ml_feature_vector import features_to_ml_vector
 except ImportError:  # pragma: no cover - supports direct script execution.
@@ -33,7 +33,7 @@ except ImportError:  # pragma: no cover - supports direct script execution.
         OUTPUT_LABEL_COLUMN,
         process_awid3_csv_file,
     )
-    from backend.ml.feature_schema import FEATURE_NAMES
+    from backend.ml.extracted_feature_schema import EXTRACTED_FEATURE_NAMES
     from backend.ml.ml_feature_schema import ML_FEATURE_COUNT, ML_FEATURE_NAMES
     from backend.ml.ml_feature_vector import features_to_ml_vector
 
@@ -81,7 +81,7 @@ def _parse_label(value: str | None) -> int:
 def _read_feature_row(row: dict[str, str]) -> tuple[dict[str, float | None], int]:
     features = {
         feature_name: _parse_feature_value(row.get(feature_name))
-        for feature_name in FEATURE_NAMES
+        for feature_name in EXTRACTED_FEATURE_NAMES
     }
     return features, _parse_label(row.get(OUTPUT_LABEL_COLUMN))
 
@@ -134,15 +134,15 @@ def build_awid3_training_dataset(
     window_seconds: float = DEFAULT_WINDOW_SECONDS,
     chunk_rows: int = DEFAULT_CHUNK_ROWS,
 ) -> BuildSummary:
-    """Build one combined 17-feature AWID3 training CSV.
+    """Build one combined 25-feature AWID3 training CSV.
 
     Input AWID3 files are processed one at a time. Each file is delegated to the
     existing chunked/external-sort AWID3 preprocessor, then streamed into the
-    final first-model feature schema without retaining the whole dataset in RAM.
+    final Model v2 feature schema without retaining the whole dataset in RAM.
     """
 
-    if ML_FEATURE_COUNT != 17:
-        raise ValueError(f"Expected 17 ML features, got {ML_FEATURE_COUNT}")
+    if ML_FEATURE_COUNT != 25:
+        raise ValueError(f"Expected 25 ML features, got {ML_FEATURE_COUNT}")
 
     if not input_csv_paths:
         raise ValueError("At least one AWID3 CSV input path is required.")
@@ -168,12 +168,12 @@ def build_awid3_training_dataset(
             temp_dir = Path(temp_dir_name)
 
             for input_path in input_paths:
-                preprocessed_path = temp_dir / f"{input_path.stem}_20_feature_windows.csv"
+                preprocessed_path = temp_dir / f"{input_path.stem}_28_feature_windows.csv"
 
                 with preprocessed_path.open("w", newline="", encoding="utf-8") as temp_file:
                     temp_writer = csv.DictWriter(
                         temp_file,
-                        fieldnames=[*FEATURE_NAMES, OUTPUT_LABEL_COLUMN],
+                        fieldnames=[*EXTRACTED_FEATURE_NAMES, OUTPUT_LABEL_COLUMN],
                     )
                     temp_writer.writeheader()
                     process_awid3_csv_file(
@@ -203,7 +203,7 @@ def build_awid3_training_dataset(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a 17-feature NetShield AWID3 binary training CSV."
+        description="Build a 25-feature NetShield AWID3 binary training CSV."
     )
     parser.add_argument("output_csv", help="Destination combined training CSV path.")
     parser.add_argument("input_csv", nargs="+", help="One or more AWID3 CSV input files.")

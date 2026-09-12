@@ -10,8 +10,8 @@ except ImportError:  # pragma: no cover - supports direct script execution.
     from ml_feature_schema import ML_FEATURE_COUNT, ML_FEATURE_NAMES
 
 
-if ML_FEATURE_COUNT != 17:
-    raise ValueError("ML_FEATURE_COUNT must be 17 for the first AWID3 binary model.")
+if ML_FEATURE_COUNT != 25:
+    raise ValueError("ML_FEATURE_COUNT must be 25 for the AWID3 Model v2 binary model.")
 
 
 def features_to_ml_vector(

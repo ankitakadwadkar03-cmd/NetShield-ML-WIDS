@@ -254,6 +254,75 @@ def extract_window_features(
 
         "retry_ratio": retry_ratio,
 
+        "deauth_per_second": (
+            _count_packet_type(
+                packets,
+                "Deauthentication",
+            ) / window_seconds
+        ),
+
+        "disassociation_per_second": (
+            _count_packet_type(
+                packets,
+                "Disassociation",
+            ) / window_seconds
+        ),
+
+        "reassociation_per_second": (
+            _count_packet_type(
+                packets,
+                "Reassociation Request",
+            )
+            + _count_packet_type(
+                packets,
+                "Reassociation Response",
+            )
+        ) / window_seconds,
+
+        "beacon_per_second": (
+            _count_packet_type(
+                packets,
+                "Beacon",
+            ) / window_seconds
+        ),
+
+        "management_ratio": (
+            _count_frame_type(packets, "Management") / total_packets
+            if total_packets > 0
+            else 0.0
+        ),
+
+        "control_ratio": (
+            _count_frame_type(packets, "Control") / total_packets
+            if total_packets > 0
+            else 0.0
+        ),
+
+        "data_ratio": (
+            _count_frame_type(packets, "Data") / total_packets
+            if total_packets > 0
+            else 0.0
+        ),
+
+        "clients_per_bssid": (
+            _unique_values(
+                packets,
+                "source_mac",
+                {"Unknown", "Broadcast"},
+            )
+            / _unique_values(
+                packets,
+                "bssid",
+                {"Unknown", "Broadcast"},
+            )
+            if _unique_values(
+                packets,
+                "bssid",
+                {"Unknown", "Broadcast"},
+            ) > 0
+            else 0.0
+        ),
+
         "average_signal": average_signal,
 
         "minimum_signal": minimum_signal,
