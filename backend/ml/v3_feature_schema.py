@@ -1,6 +1,6 @@
 ﻿from __future__ import annotations
 
-from backend.ml.ml_feature_schema import ML_FEATURE_NAMES
+from ml.ml_feature_schema import ML_FEATURE_NAMES
 
 
 BURST_FEATURE_NAMES = [

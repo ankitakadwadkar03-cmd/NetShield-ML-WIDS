@@ -13,14 +13,16 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from backend.ml.burst_features_v3 import extract_burst_features
-from backend.ml.feature_extractor import extract_window_features
-from backend.ml.v3_feature_schema import V3_FEATURE_COUNT, V3_FEATURE_NAMES
-from backend.ml.v3_feature_vector import features_to_v3_vector
+from ml.burst_features_v3 import extract_burst_features
+from ml.feature_extractor import extract_window_features
+from ml.v3_feature_schema import V3_FEATURE_COUNT, V3_FEATURE_NAMES
+from ml.v3_feature_vector import features_to_v3_vector
 
 
-PRODUCTION_MODEL_PATH = Path(
-    "backend/ml/models/random_forest_awid3_v3_expanded.joblib"
+PRODUCTION_MODEL_PATH = (
+    Path(__file__).resolve().parent
+    / "models"
+    / "random_forest_awid3_v3_expanded.joblib"
 )
 
 REQUIRED_PACKET_FIELDS = {

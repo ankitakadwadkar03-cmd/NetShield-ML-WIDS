@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from backend.ml.v3_feature_schema import V3_FEATURE_COUNT, V3_FEATURE_NAMES
+from ml.v3_feature_schema import V3_FEATURE_COUNT, V3_FEATURE_NAMES
 
 
 def features_to_v3_vector(
