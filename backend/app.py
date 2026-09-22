@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 from scanner.adapter_manager import read_adapter_status
@@ -14,10 +14,13 @@ from packet_capture.capture_service import (
     start_capture,
     stop_capture,
 )
+from ml.inference_service import create_v3_inference_service
 
 
 app = Flask(__name__)
 CORS(app)
+
+ml_service = create_v3_inference_service()
 
 
 @app.get("/api/health")
@@ -55,8 +58,6 @@ def scanner_status():
 
 @app.post("/api/scanner/start")
 def scanner_start():
-    from flask import request
-
     data = request.get_json(silent=True) or {}
 
     response, status_code = start_scanner(
@@ -76,8 +77,6 @@ def scanner_stop():
 
 @app.get("/api/packets")
 def packets():
-    from flask import request
-
     limit = request.args.get(
         "limit",
         default=50,
@@ -96,8 +95,6 @@ def capture_status():
 
 @app.post("/api/capture/start")
 def capture_start():
-    from flask import request
-
     data = request.get_json(silent=True) or {}
 
     response, status_code = start_capture(
@@ -112,6 +109,43 @@ def capture_stop():
     response, status_code = stop_capture()
 
     return jsonify(response), status_code
+
+
+@app.get("/api/ml/status")
+def ml_status():
+    return jsonify(
+        {
+            "status": "ok",
+            "model": "random_forest_awid3_v3_expanded",
+            "feature_count": 31,
+        }
+    )
+
+
+@app.post("/api/ml/analyze-window")
+def ml_analyze_window():
+    data = request.get_json(silent=True) or {}
+
+    if (
+        not isinstance(data, dict)
+        or "packets" not in data
+        or not isinstance(data["packets"], list)
+    ):
+        return (
+            jsonify(
+                {
+                    "error": "Request body must be a JSON object with a 'packets' list."
+                }
+            ),
+            400,
+        )
+
+    try:
+        result = ml_service.analyze_window(data["packets"])
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    return jsonify(result)
 
 
 if __name__ == "__main__":
