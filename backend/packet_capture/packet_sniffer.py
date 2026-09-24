@@ -22,6 +22,17 @@ from scapy.all import conf, sniff
 from packet_analyzer import PacketAnalysis, PacketAnalyzer
 from packet_logger import PacketCSVLogger
 
+try:
+    from ml.live_inference import LiveInferenceBuffer
+except ImportError:
+    backend_dir = Path(__file__).resolve().parents[1]
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    try:
+        from ml.live_inference import LiveInferenceBuffer
+    except ImportError:
+        from backend.ml.live_inference import LiveInferenceBuffer
+
 
 DEFAULT_OUTPUT = Path("backend/data/packet_logs/wifi_packets.csv")
 MAX_VISIBLE_ROWS = 20
@@ -327,6 +338,7 @@ class LivePacketMonitor:
         self.current_channel: int | None = None
         self.channel_index = 0
         self.sweep_number = 0
+        self.inference_buffer = LiveInferenceBuffer()
 
     def start(self) -> None:
         print(
@@ -509,6 +521,29 @@ class LivePacketMonitor:
 
         self.recent_packets.append(analysis)
         self._print_live_table()
+
+        result = self.inference_buffer.add_packet(analysis)
+        if result is not None:
+            attack_prob = result.get("attack_probability")
+            normal_prob = result.get("normal_probability")
+            attack_str = (
+                f"{attack_prob:.4f}"
+                if isinstance(attack_prob, (int, float))
+                else str(attack_prob)
+            )
+            normal_str = (
+                f"{normal_prob:.4f}"
+                if isinstance(normal_prob, (int, float))
+                else str(normal_prob)
+            )
+            print(
+                f"[ML Inference] Prediction: {result.get('prediction')} | "
+                f"Label: {result.get('label')} | "
+                f"Attack Prob: {attack_str} | "
+                f"Normal Prob: {normal_str} | "
+                f"Total Packets: {result.get('total_packets')}",
+                flush=True,
+            )
 
     def _print_live_table(self) -> None:
         headers = [
