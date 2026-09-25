@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
 
 try:
@@ -18,6 +20,12 @@ except ImportError:
 
 
 DEFAULT_WINDOW_SECONDS = 5.0
+DEFAULT_STATUS_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "packet_logs"
+    / "ml_live_status.json"
+)
 
 
 class LiveInferenceBuffer:
@@ -27,6 +35,7 @@ class LiveInferenceBuffer:
         self,
         inference_service: V3InferenceService | None = None,
         window_seconds: float = DEFAULT_WINDOW_SECONDS,
+        status_path: str | Path | None = DEFAULT_STATUS_PATH,
     ) -> None:
         if window_seconds <= 0:
             raise ValueError("window_seconds must be greater than 0.")
@@ -36,6 +45,11 @@ class LiveInferenceBuffer:
             inference_service
             if inference_service is not None
             else create_v3_inference_service()
+        )
+        self.status_path = (
+            Path(status_path)
+            if status_path is not None
+            else None
         )
         self.current_window: list[dict[str, Any]] = []
         self.window_start: float | None = None
@@ -74,6 +88,7 @@ class LiveInferenceBuffer:
             window_seconds=self.window_seconds,
         )
         self.latest_result = result
+        self._write_status(result)
         return result
 
     def get_latest_result(self) -> dict[str, Any] | None:
@@ -98,6 +113,7 @@ class LiveInferenceBuffer:
             window_seconds=self.window_seconds,
         )
         self.latest_result = result
+        self._write_status(result)
         return result
 
     def reset(self) -> None:
@@ -109,6 +125,24 @@ class LiveInferenceBuffer:
     def clear(self) -> None:
         """Clear the buffer state and latest result (alias for reset)."""
         self.reset()
+
+    def _write_status(self, result: dict[str, Any]) -> None:
+        """Atomically persist the latest inference result to disk."""
+        if self.status_path is None:
+            return
+
+        try:
+            self.status_path.parent.mkdir(parents=True, exist_ok=True)
+            temp_path = self.status_path.with_suffix(
+                self.status_path.suffix + ".tmp"
+            )
+            temp_path.write_text(
+                json.dumps(result, indent=2),
+                encoding="utf-8",
+            )
+            temp_path.replace(self.status_path)
+        except OSError:
+            pass
 
     @staticmethod
     def _convert_packet(packet: Any) -> dict[str, Any]:

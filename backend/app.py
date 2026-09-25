@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -21,6 +24,13 @@ app = Flask(__name__)
 CORS(app)
 
 ml_service = create_v3_inference_service()
+
+ML_LIVE_STATUS_JSON = (
+    Path(__file__).resolve().parent
+    / "data"
+    / "packet_logs"
+    / "ml_live_status.json"
+)
 
 
 @app.get("/api/health")
@@ -146,6 +156,24 @@ def ml_analyze_window():
         return jsonify({"error": str(exc)}), 400
 
     return jsonify(result)
+
+
+@app.get("/api/ml/live-status")
+def ml_live_status():
+    if not ML_LIVE_STATUS_JSON.exists():
+        return jsonify({"status": "no_inference"})
+
+    try:
+        payload = json.loads(
+            ML_LIVE_STATUS_JSON.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return jsonify({"status": "no_inference"})
+
+    if not isinstance(payload, dict):
+        return jsonify({"status": "no_inference"})
+
+    return jsonify(payload)
 
 
 if __name__ == "__main__":
