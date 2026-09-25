@@ -83,6 +83,9 @@ function App() {
   const [liveMonitorLoading, setLiveMonitorLoading] = useState(false)
   const [liveMonitorError, setLiveMonitorError] = useState('')
   const [captureActionLoading, setCaptureActionLoading] = useState(false)
+  const [mlLiveStatus, setMlLiveStatus] = useState(null)
+  const [mlDetectionLoading, setMlDetectionLoading] = useState(false)
+  const [mlDetectionError, setMlDetectionError] = useState('')
 
   const fetchJson = async (path, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${path}`, options)
@@ -324,6 +327,75 @@ function App() {
     }
 
     const intervalId = setInterval(pollWifiScan, 2000)
+
+    return () => {
+      activePollController?.abort()
+      clearInterval(intervalId)
+    }
+  }, [activeView])
+
+  useEffect(() => {
+    if (activeView !== 'ML Detection') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadMlDetectionData = async () => {
+      setMlDetectionLoading(true)
+      setMlDetectionError('')
+
+      try {
+        const payload = await fetchJson('/ml/live-status', { signal: controller.signal })
+        setMlLiveStatus(payload)
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return
+        }
+
+        setMlLiveStatus(null)
+        setMlDetectionError(
+          'Unable to connect to the NetShield backend at http://127.0.0.1:5000. Start the Flask server and try again.',
+        )
+      } finally {
+        if (!controller.signal.aborted) {
+          setMlDetectionLoading(false)
+        }
+      }
+    }
+
+    loadMlDetectionData()
+
+    return () => controller.abort()
+  }, [activeView])
+
+  useEffect(() => {
+    if (activeView !== 'ML Detection') {
+      return
+    }
+
+    let activePollController = null
+
+    const pollMlDetection = () => {
+      activePollController?.abort()
+      activePollController = new AbortController()
+      const controller = activePollController
+
+      fetchJson('/ml/live-status', { signal: controller.signal })
+        .then((payload) => {
+          setMlDetectionError('')
+          setMlLiveStatus(payload)
+        })
+        .catch((error) => {
+          if (error.name !== 'AbortError') {
+            setMlDetectionError(
+              'Unable to refresh ML inference data from http://127.0.0.1:5000. Check that the Flask backend is running.',
+            )
+          }
+        })
+    }
+
+    const intervalId = setInterval(pollMlDetection, 2000)
 
     return () => {
       activePollController?.abort()
@@ -860,6 +932,84 @@ function App() {
                   </div>
                 ) : (
                   <p className="empty-state">No captured packets are available.</p>
+                )}
+              </section>
+            </section>
+          ) : activeView === 'ML Detection' ? (
+            <section className="ml-detection-view" aria-label="ML Detection">
+              {mlDetectionError ? <p className="error-banner">{mlDetectionError}</p> : null}
+
+              <section className="panel">
+                <h2>Live V3 Random Forest Inference</h2>
+                <p className="muted-text">
+                  Results are refreshed every 2 seconds from completed 5-second live packet capture windows.
+                </p>
+
+                {mlDetectionLoading ? (
+                  <p className="muted-text">Loading ML inference status...</p>
+                ) : mlLiveStatus?.status === 'no_inference' || mlLiveStatus === null ? (
+                  <p className="empty-state">
+                    Waiting for the first completed 5-second inference window. Start live packet
+                    capture to begin ML detection.
+                  </p>
+                ) : (
+                  <>
+                    <div className="metric-grid">
+                      <article
+                        className="metric-card"
+                        style={{
+                          borderTop: mlLiveStatus.prediction === 0
+                            ? '3px solid #22c55e'
+                            : '3px solid #ef4444',
+                        }}
+                      >
+                        <p>Label</p>
+                        <strong>{mlLiveStatus.label ?? 'Unknown'}</strong>
+                      </article>
+
+                      <article className="metric-card">
+                        <p>Prediction</p>
+                        <strong>{mlLiveStatus.prediction ?? '--'}</strong>
+                      </article>
+
+                      <article className="metric-card">
+                        <p>Attack Probability</p>
+                        <strong>
+                          {mlLiveStatus.attack_probability !== undefined
+                            ? `${(mlLiveStatus.attack_probability * 100).toFixed(1)}%`
+                            : '--'}
+                        </strong>
+                      </article>
+
+                      <article className="metric-card">
+                        <p>Normal Probability</p>
+                        <strong>
+                          {mlLiveStatus.normal_probability !== undefined
+                            ? `${(mlLiveStatus.normal_probability * 100).toFixed(1)}%`
+                            : '--'}
+                        </strong>
+                      </article>
+                    </div>
+
+                    <dl className="status-list">
+                      <div>
+                        <dt>Total Packets in Window</dt>
+                        <dd>{formatValue(mlLiveStatus.total_packets)}</dd>
+                      </div>
+                      <div>
+                        <dt>Feature Count</dt>
+                        <dd>{formatValue(mlLiveStatus.feature_count)}</dd>
+                      </div>
+                      <div>
+                        <dt>Window Start</dt>
+                        <dd>{formatValue(mlLiveStatus.window_start)}</dd>
+                      </div>
+                      <div>
+                        <dt>Window End</dt>
+                        <dd>{formatValue(mlLiveStatus.window_end)}</dd>
+                      </div>
+                    </dl>
+                  </>
                 )}
               </section>
             </section>
