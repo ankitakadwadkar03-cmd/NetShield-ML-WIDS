@@ -52,6 +52,58 @@ const formatValue = (value) => value ?? 'Not reported'
 
 const formatWithUnit = (value, unit) => (value === undefined || value === null ? 'Not reported' : `${value} ${unit}`)
 
+const formatProbability = (value) => {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) {
+    return 'Not reported'
+  }
+
+  return `${(Number(value) * 100).toFixed(1)}%`
+}
+
+const formatDateTime = (value) => {
+  if (!value) {
+    return 'Not reported'
+  }
+
+  try {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return String(value)
+    }
+
+    return date.toLocaleString()
+  } catch {
+    return String(value)
+  }
+}
+
+const getSeverityBadgeClass = (severity) => {
+  const normalized = String(severity ?? '').toLowerCase()
+  if (normalized === 'high') {
+    return 'badge badge-severity-high'
+  }
+  if (normalized === 'medium') {
+    return 'badge badge-severity-medium'
+  }
+  if (normalized === 'low') {
+    return 'badge badge-severity-low'
+  }
+
+  return 'badge badge-default'
+}
+
+const getStatusBadgeClass = (status) => {
+  const normalized = String(status ?? '').toLowerCase()
+  if (normalized === 'new') {
+    return 'badge badge-status-new'
+  }
+  if (normalized === 'resolved') {
+    return 'badge badge-status-resolved'
+  }
+
+  return 'badge badge-default'
+}
+
 const normalizeScannerStatus = (payload) => payload?.scanner ?? payload?.status ?? payload ?? {}
 
 const normalizeCaptureStatus = (payload) => payload?.capture ?? payload?.status ?? payload ?? {}
@@ -86,6 +138,9 @@ function App() {
   const [mlLiveStatus, setMlLiveStatus] = useState(null)
   const [mlDetectionLoading, setMlDetectionLoading] = useState(false)
   const [mlDetectionError, setMlDetectionError] = useState('')
+  const [incidents, setIncidents] = useState([])
+  const [incidentsLoading, setIncidentsLoading] = useState(false)
+  const [incidentsError, setIncidentsError] = useState('')
 
   const fetchJson = async (path, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${path}`, options)
@@ -403,6 +458,41 @@ function App() {
     }
   }, [activeView])
 
+  useEffect(() => {
+    if (activeView !== 'Incidents') {
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadIncidentsData = async () => {
+      setIncidentsLoading(true)
+      setIncidentsError('')
+
+      try {
+        const payload = await fetchJson('/incidents', { signal: controller.signal })
+        setIncidents(normalizeList(payload, 'incidents'))
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return
+        }
+
+        setIncidents([])
+        setIncidentsError(
+          'Unable to connect to the NetShield backend at http://127.0.0.1:5000. Start the Flask server and try again.',
+        )
+      } finally {
+        if (!controller.signal.aborted) {
+          setIncidentsLoading(false)
+        }
+      }
+    }
+
+    loadIncidentsData()
+
+    return () => controller.abort()
+  }, [activeView])
+
   const wirelessAdapter =
     interfaces.find((adapter) => getInterfaceName(adapter) === selectedInterfaceName) ?? interfaces[0] ?? null
   const selectedInterface = getInterfaceName(wirelessAdapter)
@@ -441,6 +531,13 @@ function App() {
     isCaptureRunning ||
     isCaptureStopping
   const stopCaptureDisabled = !isCaptureActive || captureActionLoading
+  const totalIncidents = incidents.length
+  const newIncidents = incidents.filter(
+    (incident) => String(incident?.status ?? '').toLowerCase() === 'new',
+  ).length
+  const highSeverityIncidents = incidents.filter(
+    (incident) => String(incident?.severity ?? '').toLowerCase() === 'high',
+  ).length
 
   const handleStartScan = async () => {
     if (startScanDisabled) {
@@ -1010,6 +1107,82 @@ function App() {
                       </div>
                     </dl>
                   </>
+                )}
+              </section>
+            </section>
+          ) : activeView === 'Incidents' ? (
+            <section className="incidents-view" aria-label="Security Incidents">
+              {incidentsError ? <p className="error-banner">{incidentsError}</p> : null}
+
+              <div className="metric-grid">
+                <article className="metric-card">
+                  <p>Total Incidents</p>
+                  <strong>{totalIncidents}</strong>
+                </article>
+                <article className="metric-card">
+                  <p>New Incidents</p>
+                  <strong>{newIncidents}</strong>
+                </article>
+                <article className="metric-card">
+                  <p>High Severity</p>
+                  <strong>{highSeverityIncidents}</strong>
+                </article>
+              </div>
+
+              <section className="panel incidents-panel">
+                <h2>Security Incidents</h2>
+                <p className="muted-text">
+                  ML attack detections recorded from completed live inference windows.
+                </p>
+
+                {incidentsLoading ? (
+                  <p className="muted-text">Loading incidents...</p>
+                ) : incidents.length > 0 ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Time</th>
+                          <th>Detection</th>
+                          <th>Attack Probability</th>
+                          <th>Packets</th>
+                          <th>Severity</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incidents.map((incident, index) => (
+                          <tr key={getValue(incident, ['id']) ?? index}>
+                            <td>{formatValue(incident.id)}</td>
+                            <td>{formatDateTime(incident.created_at)}</td>
+                            <td>
+                              <span className="badge badge-detection">
+                                {formatValue(incident.label ?? incident.prediction)}
+                              </span>
+                            </td>
+                            <td>{formatProbability(incident.attack_probability)}</td>
+                            <td>{formatValue(incident.total_packets)}</td>
+                            <td>
+                              <span className={getSeverityBadgeClass(incident.severity)}>
+                                {formatValue(incident.severity)}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={getStatusBadgeClass(incident.status)}>
+                                {formatValue(incident.status)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No incidents detected</p>
+                    <p>Incidents created by ML attack detections will appear here.</p>
+                  </div>
                 )}
               </section>
             </section>

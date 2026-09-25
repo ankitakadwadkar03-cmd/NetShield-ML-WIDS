@@ -18,6 +18,7 @@ from packet_capture.capture_service import (
     stop_capture,
 )
 from ml.inference_service import create_v3_inference_service
+from data.incident_store import get_incidents
 
 
 app = Flask(__name__)
@@ -174,6 +175,18 @@ def ml_live_status():
         return jsonify({"status": "no_inference"})
 
     return jsonify(payload)
+
+
+@app.get("/api/incidents")
+def incidents():
+    incident_rows = get_incidents()
+
+    return jsonify(
+        {
+            "count": len(incident_rows),
+            "incidents": incident_rows,
+        }
+    )
 
 
 if __name__ == "__main__":

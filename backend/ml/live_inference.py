@@ -18,6 +18,14 @@ except ImportError:
             create_v3_inference_service,
         )
 
+try:
+    from data.incident_store import create_incident, initialize_database
+except ImportError:
+    try:
+        from backend.data.incident_store import create_incident, initialize_database
+    except ImportError:
+        from ..data.incident_store import create_incident, initialize_database
+
 
 DEFAULT_WINDOW_SECONDS = 5.0
 DEFAULT_STATUS_PATH = (
@@ -55,6 +63,8 @@ class LiveInferenceBuffer:
         self.window_start: float | None = None
         self.latest_result: dict[str, Any] | None = None
 
+        initialize_database()
+
     def add_packet(self, packet: Any) -> dict[str, Any] | None:
         """Add a packet to the current window buffer.
 
@@ -88,6 +98,8 @@ class LiveInferenceBuffer:
             window_seconds=self.window_seconds,
         )
         self.latest_result = result
+        if result.get("prediction") == 1:
+            create_incident(result)
         self._write_status(result)
         return result
 
@@ -113,6 +125,8 @@ class LiveInferenceBuffer:
             window_seconds=self.window_seconds,
         )
         self.latest_result = result
+        if result.get("prediction") == 1:
+            create_incident(result)
         self._write_status(result)
         return result
 
