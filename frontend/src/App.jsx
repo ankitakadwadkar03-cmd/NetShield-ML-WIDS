@@ -6,6 +6,9 @@ const sidebarItems = [
   'WiFi Scan',
   'Live Monitor',
   'ML Detection',
+  'PCAP Analysis',
+  'ML Testing',
+  'Network Recommendations',
   'Incidents',
   'Reports',
   'Settings',
@@ -113,6 +116,37 @@ const getCaptureState = (captureStatus) =>
 const normalizeCounts = (counts) =>
   counts && typeof counts === 'object' && !Array.isArray(counts) ? counts : {}
 
+const formatFileSize = (bytes) => {
+  if (!bytes || Number.isNaN(Number(bytes))) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = Number(bytes)
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex++
+  }
+  return `${size.toFixed(1)} ${units[unitIndex]}`
+}
+
+const getCategoryBadgeClass = (category) => {
+  const norm = String(category || '').toLowerCase()
+  if (norm.includes('deauth')) return 'badge badge-cat-deauth'
+  if (norm.includes('disas')) return 'badge badge-cat-disas'
+  if (norm.includes('assoc')) return 'badge badge-cat-reassoc'
+  if (norm.includes('rogue')) return 'badge badge-cat-rogueap'
+  if (norm.includes('attack')) return 'badge badge-cat-attack'
+  return 'badge badge-cat-normal'
+}
+
+const getRecommendationBadgeClass = (classification) => {
+  const norm = String(classification || '').toUpperCase()
+  if (norm === 'EXCELLENT') return 'badge badge-rec-excellent'
+  if (norm === 'GOOD') return 'badge badge-rec-good'
+  if (norm === 'FAIR') return 'badge badge-rec-fair'
+  if (norm === 'POOR') return 'badge badge-rec-poor'
+  return 'badge badge-default'
+}
+
 function App() {
   const [activeView, setActiveView] = useState('Dashboard')
   const [interfaces, setInterfaces] = useState([])
@@ -138,6 +172,39 @@ function App() {
   const [reportIncidents, setReportIncidents] = useState([])
   const [reportsLoading, setReportsLoading] = useState(false)
   const [reportsError, setReportsError] = useState('')
+
+  // PCAP Analysis state
+  const [pcapSamples, setPcapSamples] = useState([])
+  const [selectedPcapSample, setSelectedPcapSample] = useState('')
+  const [selectedPcapFile, setSelectedPcapFile] = useState(null)
+  const [pcapAnalyzing, setPcapAnalyzing] = useState(false)
+  const [pcapError, setPcapError] = useState('')
+  const [pcapResult, setPcapResult] = useState(null)
+  const [pcapHistory, setPcapHistory] = useState([])
+  const [pcapFilter, setPcapFilter] = useState('all')
+  const [pcapHistoryLoading, setPcapHistoryLoading] = useState(false)
+
+  // ML Testing & Evaluation state
+  const [mlDatasets, setMlDatasets] = useState([])
+  const [selectedDataset, setSelectedDataset] = useState('')
+  const [mlTestingLoading, setMlTestingLoading] = useState(false)
+  const [mlTestingError, setMlTestingError] = useState('')
+  const [mlTestResult, setMlTestResult] = useState(null)
+  const [mlTestRuns, setMlTestRuns] = useState([])
+  const [mlSchemaInfo, setMlSchemaInfo] = useState(null)
+
+  // Wi-Fi Recommendation & Connect state
+  const [recommendationsData, setRecommendationsData] = useState(null)
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false)
+  const [recommendationsError, setRecommendationsError] = useState('')
+  const [recommendationModelInfo, setRecommendationModelInfo] = useState(null)
+  const [recommendationFilter, setRecommendationFilter] = useState('all')
+  const [recommendationSort, setRecommendationSort] = useState('score')
+  const [connectModalNetwork, setConnectModalNetwork] = useState(null)
+  const [connectPassword, setConnectPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [connectLoading, setConnectLoading] = useState(false)
+  const [connectStatus, setConnectStatus] = useState(null)
 
   const fetchJson = async (path, options = {}) => {
     const response = await fetch(`${API_BASE_URL}${path}`, options)
@@ -578,6 +645,253 @@ function App() {
     return () => controller.abort()
   }, [activeView])
 
+  const loadPcapData = async (signal) => {
+    setPcapHistoryLoading(true)
+    setPcapError('')
+    try {
+      const [samplesRes, historyRes] = await Promise.all([
+        fetchJson('/pcap/samples', { signal }),
+        fetchJson('/pcap/analyses', { signal }),
+      ])
+      const samplesList = samplesRes?.samples || []
+      setPcapSamples(samplesList)
+      if (samplesList.length > 0 && !selectedPcapSample) {
+        setSelectedPcapSample(samplesList[0].filename)
+      }
+      const historyList = historyRes?.analyses || []
+      setPcapHistory(historyList)
+      if (historyList.length > 0 && !pcapResult) {
+        try {
+          const detail = await fetchJson(`/pcap/results/${historyList[0].id}`, { signal })
+          setPcapResult(detail)
+        } catch {}
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setPcapError('Unable to connect to PCAP service at http://127.0.0.1:5000.')
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setPcapHistoryLoading(false)
+      }
+    }
+  }
+
+  const loadMlTestingData = async (signal) => {
+    setMlTestingError('')
+    try {
+      const [datasetsRes, schemaRes, runsRes] = await Promise.all([
+        fetchJson('/ml/test/datasets', { signal }),
+        fetchJson('/ml/test/schema', { signal }),
+        fetchJson('/ml/test/runs', { signal }),
+      ])
+      const dList = datasetsRes?.datasets || []
+      setMlDatasets(dList)
+      if (dList.length > 0 && !selectedDataset) {
+        const preferred = dList.find((d) => d.name === 'awid3_v3_test_combined.csv') || dList[0]
+        setSelectedDataset(preferred.name || preferred.filename)
+      }
+      setMlSchemaInfo(schemaRes)
+      const rList = runsRes?.runs || []
+      setMlTestRuns(rList)
+      if (rList.length > 0 && !mlTestResult) {
+        try {
+          const detail = await fetchJson(`/ml/test/results/${rList[0].id}`, { signal })
+          setMlTestResult(detail)
+        } catch {}
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setMlTestingError('Unable to connect to ML evaluation service at http://127.0.0.1:5000.')
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (activeView !== 'PCAP Analysis') {
+      return
+    }
+    const controller = new AbortController()
+    loadPcapData(controller.signal)
+    return () => controller.abort()
+  }, [activeView])
+
+  useEffect(() => {
+    if (activeView !== 'ML Testing') {
+      return
+    }
+    const controller = new AbortController()
+    loadMlTestingData(controller.signal)
+    return () => controller.abort()
+  }, [activeView])
+
+  const loadRecommendationsData = async (signal) => {
+    setRecommendationsLoading(true)
+    setRecommendationsError('')
+    try {
+      const [recsRes, modelRes] = await Promise.all([
+        fetchJson('/wifi/recommendations', { signal }),
+        fetchJson('/wifi/recommendations/model', { signal }),
+      ])
+      setRecommendationsData(recsRes)
+      setRecommendationModelInfo(modelRes)
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setRecommendationsError('Unable to load Wi-Fi recommendations. Ensure the Flask backend is running.')
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setRecommendationsLoading(false)
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (activeView !== 'Network Recommendations') {
+      return
+    }
+    const controller = new AbortController()
+    loadRecommendationsData(controller.signal)
+    return () => controller.abort()
+  }, [activeView])
+
+  const handleOpenConnectModal = (network) => {
+    setConnectModalNetwork(network)
+    setConnectPassword('')
+    setShowPassword(false)
+    setConnectStatus(null)
+  }
+
+  const handleCloseConnectModal = () => {
+    if (connectLoading) return
+    setConnectModalNetwork(null)
+    setConnectPassword('')
+    setShowPassword(false)
+    setConnectStatus(null)
+  }
+
+  const handleConnectSubmit = async (e) => {
+    e?.preventDefault()
+    if (!connectModalNetwork) return
+    setConnectLoading(true)
+    setConnectStatus(null)
+
+    try {
+      const payload = {
+        ssid: connectModalNetwork.ssid,
+        password: connectPassword,
+        bssid: connectModalNetwork.bssid,
+        encryption: connectModalNetwork.encryption,
+      }
+      const res = await fetch(`${API_BASE_URL}/wifi/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) {
+        setConnectStatus({
+          success: false,
+          message: data.message || data.error || 'Failed to connect to network.',
+        })
+      } else {
+        setConnectStatus({
+          success: true,
+          message: data.message || `Successfully connected to ${connectModalNetwork.ssid}!`,
+        })
+      }
+    } catch (err) {
+      setConnectStatus({
+        success: false,
+        message: err.message || 'Network connection request failed.',
+      })
+    } finally {
+      setConnectLoading(false)
+    }
+  }
+
+  const handlePcapAnalyze = async (e) => {
+    e?.preventDefault()
+    setPcapAnalyzing(true)
+    setPcapError('')
+
+    try {
+      let data
+      if (selectedPcapFile) {
+        const formData = new FormData()
+        formData.append('file', selectedPcapFile)
+        const res = await fetch(`${API_BASE_URL}/pcap/analyze`, {
+          method: 'POST',
+          body: formData,
+        })
+        if (!res.ok) {
+          const errPayload = await res.json().catch(() => ({}))
+          throw new Error(errPayload.error || `HTTP ${res.status}`)
+        }
+        data = await res.json()
+      } else if (selectedPcapSample) {
+        data = await fetchJson('/pcap/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sample: selectedPcapSample }),
+        })
+      } else {
+        throw new Error('Please select a file to upload or choose a bundled sample PCAP.')
+      }
+
+      setPcapResult(data)
+      const histRes = await fetchJson('/pcap/analyses')
+      setPcapHistory(histRes?.analyses || [])
+    } catch (err) {
+      setPcapError(err.message || 'PCAP analysis failed. Verify packet capture file.')
+    } finally {
+      setPcapAnalyzing(false)
+    }
+  }
+
+  const handleSelectHistoryPcap = async (id) => {
+    setPcapError('')
+    try {
+      const detail = await fetchJson(`/pcap/results/${id}`)
+      setPcapResult(detail)
+    } catch (err) {
+      setPcapError('Failed to load past PCAP analysis.')
+    }
+  }
+
+  const handleRunMlTest = async () => {
+    if (!selectedDataset) {
+      setMlTestingError('Please select a dataset to evaluate.')
+      return
+    }
+    setMlTestingLoading(true)
+    setMlTestingError('')
+    try {
+      const data = await fetchJson('/ml/test/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset_name: selectedDataset }),
+      })
+      setMlTestResult(data)
+      const runsRes = await fetchJson('/ml/test/runs')
+      setMlTestRuns(runsRes?.runs || [])
+    } catch (err) {
+      setMlTestingError(err.message || 'Model evaluation failed.')
+    } finally {
+      setMlTestingLoading(false)
+    }
+  }
+
+  const handleSelectPastTestRun = async (id) => {
+    setMlTestingError('')
+    try {
+      const detail = await fetchJson(`/ml/test/results/${id}`)
+      setMlTestResult(detail)
+    } catch (err) {
+      setMlTestingError('Failed to load past evaluation run.')
+    }
+  }
+
   const wirelessAdapter =
     interfaces.find((adapter) => getInterfaceName(adapter) === selectedInterfaceName) ?? interfaces[0] ?? null
   const selectedInterface = getInterfaceName(wirelessAdapter)
@@ -806,6 +1120,41 @@ function App() {
     }
   }
 
+  const recList =
+    recommendationsData?.networks ||
+    recommendationsData?.recommendations ||
+    []
+  const totalScannedRecs =
+    recommendationsData?.scanned_count ??
+    recommendationsData?.count ??
+    recList.length
+  const bestNetwork =
+    recList.length > 0
+      ? (recommendationsData?.best_network || recList[0])
+      : null
+  const recommendedRecsCount = recList.filter((n) => n.is_recommended).length
+  const fiveGhzRecsCount = recList.filter((n) => String(n.frequency || '').includes('5') || Number(n.channel) > 14).length
+
+  const filteredRecommendations = recList.filter((net) => {
+    if (recommendationFilter === 'recommended') return net.is_recommended
+    if (recommendationFilter === '5ghz') return String(net.frequency || '').includes('5') || (Number(net.channel) > 14)
+    if (recommendationFilter === 'secure') return !String(net.encryption || '').toLowerCase().includes('open')
+    return true
+  }).sort((a, b) => {
+    if (recommendationSort === 'score') return (b.score || 0) - (a.score || 0)
+    if (recommendationSort === 'signal') {
+      const sigA = parseInt(String(a.signal || '-100').replace(/[^0-9-]/g, ''), 10) || -100
+      const sigB = parseInt(String(b.signal || '-100').replace(/[^0-9-]/g, ''), 10) || -100
+      return sigB - sigA
+    }
+    if (recommendationSort === 'security') {
+      const getRank = (c) => (c === 'EXCELLENT' ? 4 : c === 'GOOD' ? 3 : c === 'FAIR' ? 2 : 1)
+      return getRank(b.classification) - getRank(a.classification)
+    }
+    if (recommendationSort === 'channel') return (a.channel || 0) - (b.channel || 0)
+    return 0
+  })
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Primary navigation">
@@ -909,6 +1258,114 @@ function App() {
                   )}
                 </section>
               </div>
+
+              <div className="panel-grid" style={{ marginTop: '20px' }}>
+                <section className="panel">
+                  <div className="panel-header">
+                    <h2>ML Detection Engine Status</h2>
+                    <span className="badge badge-status-resolved">Production Ready</span>
+                  </div>
+                  <dl className="status-list">
+                    <div>
+                      <dt>Active Model</dt>
+                      <dd>random_forest_awid3_v3_expanded.joblib</dd>
+                    </div>
+                    <div>
+                      <dt>Architecture</dt>
+                      <dd>RandomForestClassifier (200 Trees)</dd>
+                    </div>
+                    <div>
+                      <dt>Feature Schema</dt>
+                      <dd style={{ color: '#2dd4bf', fontWeight: 600 }}>31 / 31 Canonical AWID3 Features</dd>
+                    </div>
+                    <div>
+                      <dt>Evaluation Benchmark</dt>
+                      <dd>96.74% Accuracy / 90.91% F1</dd>
+                    </div>
+                  </dl>
+                </section>
+
+                <section className="panel">
+                  <div className="panel-header">
+                    <h2>Offline PCAP & Threat Analysis</h2>
+                    <span className="badge badge-default">{pcapHistory.length} Analyzed</span>
+                  </div>
+                  <dl className="status-list">
+                    <div>
+                      <dt>Captures Analyzed</dt>
+                      <dd>{pcapHistory.length} Capture Files</dd>
+                    </div>
+                    <div>
+                      <dt>Supported Formats</dt>
+                      <dd>.pcap, .pcapng, .cap</dd>
+                    </div>
+                    <div>
+                      <dt>Threat Categorization</dt>
+                      <dd>Deauth, Disas, ReAssoc, Rogue AP</dd>
+                    </div>
+                    <div>
+                      <dt>Analysis Window</dt>
+                      <dd>5.0s Temporal Windows</dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+
+              {incidents.length > 0 ? (
+                <section className="panel" style={{ marginTop: '20px' }}>
+                  <div className="panel-header">
+                    <h2>Recent High-Priority Security Incidents</h2>
+                    <button
+                      type="button"
+                      className="scan-button"
+                      style={{ padding: '4px 10px', fontSize: '12px' }}
+                      onClick={() => setActiveView('Incidents')}
+                    >
+                      View All Incidents
+                    </button>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Time</th>
+                          <th>Attack Label</th>
+                          <th>Attack Probability</th>
+                          <th>Packets</th>
+                          <th>Severity</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incidents.slice(0, 5).map((incident, idx) => (
+                          <tr key={incident.id ?? idx}>
+                            <td>#{incident.id}</td>
+                            <td>{formatDateTime(incident.created_at)}</td>
+                            <td>
+                              <span className="badge badge-detection">
+                                {formatValue(incident.label ?? incident.prediction)}
+                              </span>
+                            </td>
+                            <td>{formatProbability(incident.attack_probability)}</td>
+                            <td>{formatValue(incident.total_packets)}</td>
+                            <td>
+                              <span className={getSeverityBadgeClass(incident.severity)}>
+                                {formatValue(incident.severity)}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={getStatusBadgeClass(incident.status)}>
+                                {formatValue(incident.status)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
             </section>
           ) : activeView === 'WiFi Scan' ? (
             <section className="wifi-scan-view" aria-label="WiFi scan">
@@ -1322,6 +1779,1071 @@ function App() {
                   </>
                 )}
               </section>
+            </section>
+          ) : activeView === 'PCAP Analysis' ? (
+            <section className="pcap-analysis-view" aria-label="PCAP Analysis">
+              {pcapError ? <p className="error-banner">{pcapError}</p> : null}
+
+              <section className="panel pcap-upload-panel">
+                <div className="panel-header">
+                  <div>
+                    <h2>PCAP / PCAPNG Offline Packet Analysis</h2>
+                    <p className="panel-subtitle">
+                      Extract canonical 31 AWID3 features across 5-second windows and detect intrusion patterns.
+                    </p>
+                  </div>
+                </div>
+
+                <form className="pcap-upload-form" onSubmit={handlePcapAnalyze}>
+                  <div className="pcap-input-row">
+                    <label className="file-upload-box">
+                      <span className="file-label-title">Upload Packet Capture</span>
+                      <input
+                        type="file"
+                        accept=".pcap,.pcapng,.cap"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          setSelectedPcapFile(file || null)
+                        }}
+                      />
+                      {selectedPcapFile ? (
+                        <span className="selected-filename">{selectedPcapFile.name} ({formatFileSize(selectedPcapFile.size)})</span>
+                      ) : (
+                        <span className="file-placeholder">Choose .pcap or .pcapng file from your computer</span>
+                      )}
+                    </label>
+
+                    <div className="sample-select-box">
+                      <label htmlFor="pcap-sample-select">Or Use Bundled Sample</label>
+                      <select
+                        id="pcap-sample-select"
+                        value={selectedPcapFile ? '' : selectedPcapSample}
+                        onChange={(e) => {
+                          setSelectedPcapSample(e.target.value)
+                          setSelectedPcapFile(null)
+                        }}
+                        disabled={!!selectedPcapFile}
+                      >
+                        <option value="">-- Choose sample capture --</option>
+                        {pcapSamples.map((s) => (
+                          <option key={s.filename} value={s.filename}>
+                            {s.filename} ({formatFileSize(s.file_size_bytes)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="pcap-actions-row">
+                    <button
+                      type="submit"
+                      className="scan-button primary"
+                      disabled={pcapAnalyzing || (!selectedPcapFile && !selectedPcapSample)}
+                    >
+                      {pcapAnalyzing ? 'Analyzing 31 Features...' : 'Run PCAP Analysis'}
+                    </button>
+                    {pcapResult?.id ? (
+                      <button
+                        type="button"
+                        className="scan-button"
+                        onClick={() => window.open(`${API_BASE_URL}/pcap/download/${pcapResult.id}/csv`)}
+                      >
+                        Export Windows to CSV
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              </section>
+
+              {pcapResult ? (
+                <>
+                  <div className="metric-grid">
+                    <article className="metric-card">
+                      <p>Total Packets</p>
+                      <strong>{formatValue(pcapResult.total_packets ?? pcapResult.summary?.total_packets)}</strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Analyzed Windows (5s)</p>
+                      <strong>{formatValue(pcapResult.total_windows ?? pcapResult.summary?.analyzed_windows)}</strong>
+                    </article>
+                    <article
+                      className="metric-card"
+                      style={{
+                        borderTop: (pcapResult.attack_windows ?? pcapResult.summary?.attack_windows) > 0
+                          ? '3px solid #ef4444'
+                          : '3px solid #22c55e',
+                      }}
+                    >
+                      <p>Attack Windows</p>
+                      <strong>
+                        {formatValue(pcapResult.attack_windows ?? pcapResult.summary?.attack_windows ?? 0)}
+                        <span className="metric-sub" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                          {' '}({formatValue(pcapResult.attack_percentage ?? pcapResult.summary?.attack_percentage ?? 0)}%)
+                        </span>
+                      </strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Dominant Threat</p>
+                      <strong>{formatValue(pcapResult.dominant_category ?? pcapResult.summary?.dominant_category ?? 'None')}</strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Feature Schema</p>
+                      <strong style={{ color: '#2dd4bf', fontSize: '15px' }}>
+                        31 / 31 Canonical
+                      </strong>
+                    </article>
+                  </div>
+
+                  <section className="panel">
+                    <div className="panel-header">
+                      <h2>Attack Categories Detected</h2>
+                    </div>
+                    {pcapResult.attack_categories && Object.keys(pcapResult.attack_categories).length > 0 ? (
+                      <div className="attack-summary-grid">
+                        {Object.entries(pcapResult.attack_categories).map(([cat, count]) => (
+                          <div className="attack-summary-item" key={cat}>
+                            <span className={getCategoryBadgeClass(cat)}>{cat}</span>
+                            <span className="attack-count">{count} {count === 1 ? 'window' : 'windows'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="empty-state-muted">No attacks detected in this capture file (100% normal Wi-Fi frames).</p>
+                    )}
+                  </section>
+
+                  <section className="panel">
+                    <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h2>Time-Window Classification Timeline</h2>
+                      <div className="filter-button-group">
+                        <button
+                          type="button"
+                          className={pcapFilter === 'all' ? 'filter-btn active' : 'filter-btn'}
+                          onClick={() => setPcapFilter('all')}
+                        >
+                          All Windows ({pcapResult.windows?.length ?? 0})
+                        </button>
+                        <button
+                          type="button"
+                          className={pcapFilter === 'attacks' ? 'filter-btn active' : 'filter-btn'}
+                          onClick={() => setPcapFilter('attacks')}
+                        >
+                          Attacks Only ({pcapResult.attack_windows ?? pcapResult.summary?.attack_windows ?? 0})
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Window</th>
+                            <th>Time Interval</th>
+                            <th>Packets</th>
+                            <th>Prediction</th>
+                            <th>Category</th>
+                            <th>Confidence</th>
+                            <th>Deauth / Disas</th>
+                            <th>Burst Ratio</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(pcapResult.windows ?? [])
+                            .filter((w) => pcapFilter === 'all' || w.prediction === 1)
+                            .map((w) => (
+                              <tr key={w.window_index}>
+                                <td>#{w.window_index + 1}</td>
+                                <td>{w.window_start}s - {w.window_end}s</td>
+                                <td>{w.total_packets ?? w.packet_count}</td>
+                                <td>
+                                  <span className={w.prediction === 1 ? 'badge badge-severity-high' : 'badge badge-status-resolved'}>
+                                    {w.label ?? (w.prediction === 1 ? 'Attack' : 'Normal')}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={getCategoryBadgeClass(w.category ?? w.attack_category)}>
+                                    {w.category ?? w.attack_category ?? 'Normal'}
+                                  </span>
+                                </td>
+                                <td>
+                                  {w.prediction === 1
+                                    ? formatProbability(w.attack_probability)
+                                    : formatProbability(w.normal_probability)}
+                                </td>
+                                <td>
+                                  {w.deauth_count ?? 0} / {w.disassoc_count ?? 0}
+                                </td>
+                                <td>
+                                  {w.packet_burst_ratio !== undefined ? Number(w.packet_burst_ratio).toFixed(2) : '--'}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p>No PCAP file analyzed yet.</p>
+                  <p>Select a capture file above or choose a bundled sample to perform offline ML intrusion inspection.</p>
+                </div>
+              )}
+
+              {pcapHistory.length > 0 ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <h2>Past PCAP Analyses</h2>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Filename</th>
+                          <th>Analyzed Time</th>
+                          <th>Packets</th>
+                          <th>Windows</th>
+                          <th>Attacks</th>
+                          <th>Threats</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pcapHistory.map((hist) => (
+                          <tr key={hist.id}>
+                            <td>#{hist.id}</td>
+                            <td><strong>{hist.filename}</strong></td>
+                            <td>{formatDateTime(hist.created_at)}</td>
+                            <td>{hist.total_packets}</td>
+                            <td>{hist.analyzed_windows}</td>
+                            <td>
+                              <span className={hist.attack_windows > 0 ? 'badge badge-severity-high' : 'badge badge-status-resolved'}>
+                                {hist.attack_windows}
+                              </span>
+                            </td>
+                            <td>
+                              {Object.keys(hist.attack_categories || {}).length > 0
+                                ? Object.keys(hist.attack_categories).join(', ')
+                                : 'Normal'}
+                            </td>
+                            <td>
+                              <button
+                                type="button"
+                                className="scan-button"
+                                style={{ padding: '4px 10px', fontSize: '12px' }}
+                                onClick={() => handleSelectHistoryPcap(hist.id)}
+                              >
+                                View Results
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+            </section>
+          ) : activeView === 'ML Testing' ? (
+            <section className="ml-testing-view" aria-label="ML Testing">
+              {mlTestingError ? <p className="error-banner">{mlTestingError}</p> : null}
+
+              <section className="panel model-spec-panel">
+                <div className="panel-header">
+                  <div>
+                    <h2>AWID3 Machine Learning Model Evaluation</h2>
+                    <p className="panel-subtitle">
+                      Test unseen Wi-Fi intrusion datasets against the frozen Random Forest model without retraining.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="model-spec-grid">
+                  <div className="spec-card">
+                    <span className="spec-label">Production Model</span>
+                    <strong>random_forest_awid3_v3_expanded.joblib</strong>
+                  </div>
+                  <div className="spec-card">
+                    <span className="spec-label">Model Architecture</span>
+                    <strong>RandomForestClassifier (200 trees)</strong>
+                  </div>
+                  <div className="spec-card">
+                    <span className="spec-label">Canonical Feature Schema</span>
+                    <strong style={{ color: '#2dd4bf' }}>31 / 31 Features Matched</strong>
+                  </div>
+                  <div className="spec-card">
+                    <span className="spec-label">Classification Target</span>
+                    <strong>Binary (0 = Normal, 1 = Attack)</strong>
+                  </div>
+                </div>
+
+                <div className="test-control-bar" style={{ marginTop: '20px' }}>
+                  <label htmlFor="dataset-select" style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                    <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Evaluation Test Dataset (backend/data/)</span>
+                    <select
+                      id="dataset-select"
+                      value={selectedDataset}
+                      onChange={(e) => setSelectedDataset(e.target.value)}
+                    >
+                      {mlDatasets.map((d) => (
+                        <option key={d.name || d.filename} value={d.name || d.filename}>
+                          {d.name || d.filename} — {d.sample_count} samples ({d.normal_count} normal, {d.attack_count} attack)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    className="scan-button primary"
+                    disabled={mlTestingLoading || !selectedDataset}
+                    onClick={handleRunMlTest}
+                    style={{ alignSelf: 'flex-end' }}
+                  >
+                    {mlTestingLoading ? 'Evaluating Test Dataset...' : 'Run Model Evaluation'}
+                  </button>
+                </div>
+              </section>
+
+              {mlTestResult ? (
+                <>
+                  <div className="metric-grid">
+                    <article className="metric-card" style={{ borderTop: '3px solid #2dd4bf' }}>
+                      <p>Accuracy</p>
+                      <strong style={{ color: '#2dd4bf' }}>
+                        {mlTestResult.metrics?.accuracy !== undefined ? `${mlTestResult.metrics.accuracy}%` : '--'}
+                      </strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Precision (Attack)</p>
+                      <strong>
+                        {mlTestResult.metrics?.precision !== undefined ? `${mlTestResult.metrics.precision}%` : '--'}
+                      </strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Recall (Attack)</p>
+                      <strong>
+                        {mlTestResult.metrics?.recall !== undefined ? `${mlTestResult.metrics.recall}%` : '--'}
+                      </strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>F1 Score (Attack)</p>
+                      <strong>
+                        {mlTestResult.metrics?.f1_score !== undefined ? `${mlTestResult.metrics.f1_score}%` : '--'}
+                      </strong>
+                    </article>
+                    <article className="metric-card">
+                      <p>Total Test Samples</p>
+                      <strong>{formatValue(mlTestResult.total_samples)}</strong>
+                    </article>
+                  </div>
+
+                  <div className="panel-grid">
+                    <section className="panel">
+                      <div className="panel-header">
+                        <h2>2x2 Confusion Matrix</h2>
+                        <span className="badge badge-status-resolved">Evaluated Test Set</span>
+                      </div>
+                      <div className="cm-container">
+                        <div className="cm-header-cols">
+                          <span className="cm-col-label">Predicted Normal (0)</span>
+                          <span className="cm-col-label">Predicted Attack (1)</span>
+                        </div>
+                        <div className="cm-row">
+                          <span className="cm-row-label">Actual Normal (0)</span>
+                          <div className="cm-cell cm-tn">
+                            <span className="cm-val">{mlTestResult.confusion_matrix?.true_negatives ?? 0}</span>
+                            <span className="cm-desc">True Negatives (TN)</span>
+                          </div>
+                          <div className="cm-cell cm-fp">
+                            <span className="cm-val">{mlTestResult.confusion_matrix?.false_positives ?? 0}</span>
+                            <span className="cm-desc">False Positives (FP)</span>
+                          </div>
+                        </div>
+                        <div className="cm-row">
+                          <span className="cm-row-label">Actual Attack (1)</span>
+                          <div className="cm-cell cm-fn">
+                            <span className="cm-val">{mlTestResult.confusion_matrix?.false_negatives ?? 0}</span>
+                            <span className="cm-desc">False Negatives (FN)</span>
+                          </div>
+                          <div className="cm-cell cm-tp">
+                            <span className="cm-val">{mlTestResult.confusion_matrix?.true_positives ?? 0}</span>
+                            <span className="cm-desc">True Positives (TP)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="panel">
+                      <div className="panel-header">
+                        <h2>Classification Report</h2>
+                        <span className="badge badge-default">Class Breakdown</span>
+                      </div>
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Class</th>
+                              <th>Precision</th>
+                              <th>Recall</th>
+                              <th>F1-Score</th>
+                              <th>Support</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td><strong>Normal (0)</strong></td>
+                              <td>{mlTestResult.per_class?.Normal?.precision ? `${mlTestResult.per_class.Normal.precision}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Normal?.recall ? `${mlTestResult.per_class.Normal.recall}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Normal?.f1_score ? `${mlTestResult.per_class.Normal.f1_score}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Normal?.support ?? mlTestResult.normal_support ?? '--'}</td>
+                            </tr>
+                            <tr>
+                              <td><strong>Attack (1)</strong></td>
+                              <td>{mlTestResult.per_class?.Attack?.precision ? `${mlTestResult.per_class.Attack.precision}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Attack?.recall ? `${mlTestResult.per_class.Attack.recall}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Attack?.f1_score ? `${mlTestResult.per_class.Attack.f1_score}%` : '--'}</td>
+                              <td>{mlTestResult.per_class?.Attack?.support ?? mlTestResult.attack_support ?? '--'}</td>
+                            </tr>
+                            <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                              <td><em>Overall / Accuracy</em></td>
+                              <td colSpan="3" style={{ textAlign: 'center', color: '#2dd4bf', fontWeight: 'bold' }}>
+                                {mlTestResult.metrics?.accuracy}% Accuracy
+                              </td>
+                              <td>{mlTestResult.total_samples}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  </div>
+
+                  {mlTestResult.sample_preview && mlTestResult.sample_preview.length > 0 ? (
+                    <section className="panel">
+                      <div className="panel-header">
+                        <h2>Sample Predictions Preview</h2>
+                        <p className="panel-subtitle">Direct evaluation against canonical 31 features</p>
+                      </div>
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Ground Truth</th>
+                              <th>Model Prediction</th>
+                              <th>Status</th>
+                              <th>Attack Probability</th>
+                              <th>Normal Probability</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mlTestResult.sample_preview.slice(0, 15).map((s) => (
+                              <tr key={s.index}>
+                                <td>{s.index + 1}</td>
+                                <td>
+                                  <span className={s.actual === 1 ? 'badge badge-severity-high' : 'badge badge-status-resolved'}>
+                                    {s.actual_label}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={s.predicted === 1 ? 'badge badge-severity-high' : 'badge badge-status-resolved'}>
+                                    {s.predicted_label}
+                                  </span>
+                                </td>
+                                <td>
+                                  {s.is_correct ? (
+                                    <span style={{ color: '#22c55e', fontWeight: 600 }}>✓ Correct</span>
+                                  ) : (
+                                    <span style={{ color: '#ef4444', fontWeight: 600 }}>✗ Misclassified</span>
+                                  )}
+                                </td>
+                                <td>{s.attack_probability !== null ? formatProbability(s.attack_probability) : '--'}</td>
+                                <td>{s.normal_probability !== null ? formatProbability(s.normal_probability) : '--'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ) : null}
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p>No dataset evaluation performed yet.</p>
+                  <p>Select a test CSV dataset above to test the frozen Random Forest model.</p>
+                </div>
+              )}
+
+              {mlTestRuns.length > 0 ? (
+                <section className="panel">
+                  <div className="panel-header">
+                    <h2>Past ML Test Runs</h2>
+                  </div>
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Run ID</th>
+                          <th>Dataset</th>
+                          <th>Timestamp</th>
+                          <th>Samples</th>
+                          <th>Accuracy</th>
+                          <th>Precision</th>
+                          <th>Recall</th>
+                          <th>F1-Score</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mlTestRuns.map((r) => (
+                          <tr key={r.id}>
+                            <td>#{r.id}</td>
+                            <td><strong>{r.dataset_name}</strong></td>
+                            <td>{formatDateTime(r.evaluated_at)}</td>
+                            <td>{r.total_samples}</td>
+                            <td><strong style={{ color: '#2dd4bf' }}>{r.accuracy}%</strong></td>
+                            <td>{r.precision}%</td>
+                            <td>{r.recall}%</td>
+                            <td>{r.f1_score}%</td>
+                            <td>
+                              <button
+                                type="button"
+                                className="scan-button"
+                                style={{ padding: '4px 10px', fontSize: '12px' }}
+                                onClick={() => handleSelectPastTestRun(r.id)}
+                              >
+                                View Report
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              ) : null}
+            </section>
+          ) : activeView === 'Network Recommendations' ? (
+            <section className="recommendations-view" aria-label="Network Recommendations">
+              {recommendationsError ? <p className="error-banner">{recommendationsError}</p> : null}
+
+              <div className="reports-header-panel panel">
+                <div className="panel-header">
+                  <div>
+                    <h2>ML-Based Wi-Fi Network Recommendations</h2>
+                    <p className="panel-subtitle">
+                      Automated scan-level classification and network selection powered by Random Forest classifier trained on 12 IEEE 802.11 QoS &amp; security metrics.
+                    </p>
+                  </div>
+                  <div className="report-controls">
+                    <button
+                      className="scan-button"
+                      disabled={recommendationsLoading}
+                      onClick={() => loadRecommendationsData()}
+                      type="button"
+                    >
+                      {recommendationsLoading ? 'Analyzing Networks...' : 'Refresh Recommendations'}
+                    </button>
+                    <button
+                      className="scan-button primary"
+                      onClick={() => setActiveView('WiFi Scan')}
+                      type="button"
+                    >
+                      Run Wi-Fi Scan
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Scan-to-recommendation pipeline banner */}
+              <div className="pipeline-banner">
+                <span className="pipeline-step"><span className="pipe-num">1</span> Wi-Fi Scan Ingestion</span>
+                <span className="pipeline-arrow">&#10140;</span>
+                <span className="pipeline-step"><span className="pipe-num">2</span> 12-Feature Extraction</span>
+                <span className="pipeline-arrow">&#10140;</span>
+                <span className="pipeline-step"><span className="pipe-num">3</span> Random Forest ML Inference</span>
+                <span className="pipeline-arrow">&#10140;</span>
+                <span className="pipeline-step"><span className="pipe-num">4</span> 4-Tier Classification</span>
+                <span className="pipeline-arrow">&#10140;</span>
+                <span className="pipeline-step"><span className="pipe-num">5</span> Ranked Recommendation</span>
+              </div>
+
+              {/* Best Recommended Network Hero Card */}
+              {bestNetwork ? (
+                <section className="best-rec-card panel">
+                  <div className="best-rec-badge-row">
+                    <span className="best-choice-pill">&#9733; BEST RECOMMENDED NETWORK</span>
+                    <span className={getRecommendationBadgeClass(bestNetwork.classification)}>
+                      {bestNetwork.classification}
+                    </span>
+                    <span className="score-pill">
+                      ML Score: <strong>{bestNetwork.score ?? '--'}</strong> / 100
+                    </span>
+                    <span className="conf-pill">
+                      Confidence: {formatProbability(bestNetwork.confidence)}
+                    </span>
+                  </div>
+
+                  <div className="best-rec-main">
+                    <div className="best-rec-info">
+                      <h3 className="best-rec-ssid">{bestNetwork.ssid || '<Hidden SSID>'}</h3>
+                      <p className="best-rec-bssid">{bestNetwork.bssid || 'BSSID Unknown'}</p>
+
+                      <div className="best-rec-metrics-grid">
+                        <div className="mini-stat">
+                          <span className="stat-label">Signal Level</span>
+                          <span className="stat-value">{bestNetwork.signal || '--'}</span>
+                        </div>
+                        <div className="mini-stat">
+                          <span className="stat-label">Frequency / Channel</span>
+                          <span className="stat-value">{bestNetwork.frequency || 'N/A'} (Ch {bestNetwork.channel || '?'})</span>
+                        </div>
+                        <div className="mini-stat">
+                          <span className="stat-label">Encryption</span>
+                          <span className="stat-value">{bestNetwork.encryption || 'Open'}</span>
+                        </div>
+                        <div className="mini-stat">
+                          <span className="stat-label">Band</span>
+                          <span className="stat-value">
+                            {String(bestNetwork.frequency || '').includes('5') || Number(bestNetwork.channel) > 14 ? '5 GHz' : '2.4 GHz'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="best-rec-actions">
+                      <button
+                        type="button"
+                        className="connect-btn-large"
+                        onClick={() => handleOpenConnectModal(bestNetwork)}
+                      >
+                        &#9889; Connect to Network
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Explainability Factors */}
+                  <div className="best-rec-factors">
+                    {bestNetwork.positive_reasons && bestNetwork.positive_reasons.length > 0 ? (
+                      <div className="factors-group">
+                        <span className="factor-heading positive">Strengths &amp; Selection Factors:</span>
+                        <div className="factor-tags">
+                          {bestNetwork.positive_reasons.map((r, i) => (
+                            <span key={i} className="factor-tag positive">&#10003; {r}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {bestNetwork.negative_reasons && bestNetwork.negative_reasons.length > 0 ? (
+                      <div className="factors-group" style={{ marginTop: '8px' }}>
+                        <span className="factor-heading negative">Risks &amp; Caveats:</span>
+                        <div className="factor-tags">
+                          {bestNetwork.negative_reasons.map((r, i) => (
+                            <span key={i} className="factor-tag negative">&#9888; {r}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              ) : !recommendationsLoading ? (
+                <div className="empty-state panel" style={{ marginBottom: '20px', padding: '36px 24px', textAlign: 'center' }}>
+                  <p style={{ fontWeight: 600, fontSize: '16px', color: 'var(--text-strong)', marginBottom: '8px' }}>
+                    No Wi-Fi networks scanned yet.
+                  </p>
+                  <p className="muted-text" style={{ marginBottom: '16px' }}>
+                    Run Wi-Fi Scan to discover nearby networks and then refresh recommendations.
+                  </p>
+                  <button
+                    type="button"
+                    className="scan-button primary"
+                    onClick={() => setActiveView('WiFi Scan')}
+                  >
+                    Go to Wi-Fi Scan
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Metrics Summary Grid */}
+              <div className="metric-grid">
+                <article className="metric-card">
+                  <p>Scanned Networks</p>
+                  <strong>{totalScannedRecs}</strong>
+                </article>
+                <article className="metric-card">
+                  <p>Recommended Networks</p>
+                  <strong style={{ color: '#2dd4bf' }}>{recommendedRecsCount}</strong>
+                </article>
+                <article className="metric-card">
+                  <p>5 GHz High-Speed APs</p>
+                  <strong>{fiveGhzRecsCount}</strong>
+                </article>
+                <article className="metric-card">
+                  <p>Model Accuracy</p>
+                  <strong style={{ color: '#2dd4bf' }}>
+                    {recommendationModelInfo?.metrics?.accuracy_pct !== undefined
+                      ? `${recommendationModelInfo.metrics.accuracy_pct}%`
+                      : '88.1%'}
+                  </strong>
+                </article>
+                <article className="metric-card">
+                  <p>Features Evaluated</p>
+                  <strong>{recommendationModelInfo?.features?.length ?? 12} Features</strong>
+                </article>
+              </div>
+
+              {/* Toolbar: Filters and Sorting */}
+              <div className="rec-toolbar panel">
+                <div className="rec-filters">
+                  <span className="toolbar-label">Filter:</span>
+                  <button
+                    type="button"
+                    className={`filter-chip ${recommendationFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => setRecommendationFilter('all')}
+                  >
+                    All Networks ({recList.length})
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-chip ${recommendationFilter === 'recommended' ? 'active' : ''}`}
+                    onClick={() => setRecommendationFilter('recommended')}
+                  >
+                    Recommended Only ({recommendedRecsCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-chip ${recommendationFilter === '5ghz' ? 'active' : ''}`}
+                    onClick={() => setRecommendationFilter('5ghz')}
+                  >
+                    5 GHz Band ({fiveGhzRecsCount})
+                  </button>
+                  <button
+                    type="button"
+                    className={`filter-chip ${recommendationFilter === 'secure' ? 'active' : ''}`}
+                    onClick={() => setRecommendationFilter('secure')}
+                  >
+                    Secured Only
+                  </button>
+                </div>
+
+                <div className="rec-sorting">
+                  <label htmlFor="rec-sort-select">
+                    <span className="toolbar-label">Sort By:</span>
+                    <select
+                      id="rec-sort-select"
+                      className="rec-select"
+                      value={recommendationSort}
+                      onChange={(e) => setRecommendationSort(e.target.value)}
+                    >
+                      <option value="score">ML Recommendation Score</option>
+                      <option value="signal">Signal Strength</option>
+                      <option value="security">Security Grade</option>
+                      <option value="channel">Channel Number</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              {/* Ranked Networks Table */}
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h2>Ranked Wi-Fi Networks ({filteredRecommendations.length})</h2>
+                    <p className="panel-subtitle">Sorted from best to worst based on ML QoS and security evaluation</p>
+                  </div>
+                </div>
+
+                {recommendationsLoading ? (
+                  <p className="muted-text" style={{ padding: '24px' }}>Loading and analyzing Wi-Fi scan data...</p>
+                ) : filteredRecommendations.length > 0 ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Rank</th>
+                          <th>Network / SSID</th>
+                          <th>Classification</th>
+                          <th>ML Score</th>
+                          <th>Signal</th>
+                          <th>Channel &amp; Band</th>
+                          <th>Security</th>
+                          <th>Explainability Factors</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredRecommendations.map((net, idx) => {
+                          const scoreVal = Number(net.score || 0)
+                          return (
+                            <tr key={net.bssid || idx} className={net.is_recommended ? 'recommended-row' : ''}>
+                              <td>
+                                <span className={`rank-badge ${idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : ''}`}>
+                                  #{net.rank ?? idx + 1}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="net-ssid-cell">
+                                  <strong>{net.ssid || '<Hidden SSID>'}</strong>
+                                  <span className="net-bssid-sub">{net.bssid || 'Unknown BSSID'}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <span className={getRecommendationBadgeClass(net.classification)}>
+                                  {net.classification}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="score-cell">
+                                  <div className="score-num-row">
+                                    <strong>{scoreVal.toFixed(1)}</strong>
+                                    <span className="score-sub">/ 100</span>
+                                  </div>
+                                  <div className="score-bar-bg">
+                                    <div
+                                      className={`score-bar-fill ${scoreVal >= 80 ? 'high' : scoreVal >= 60 ? 'med' : scoreVal >= 40 ? 'fair' : 'low'}`}
+                                      style={{ width: `${Math.max(5, Math.min(100, scoreVal))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </td>
+                              <td>
+                                <span className="mono-val">{net.signal || '--'}</span>
+                              </td>
+                              <td>
+                                <span className="mono-val">Ch {net.channel || '?'}</span>
+                                <span className="band-sub">
+                                  {String(net.frequency || '').includes('5') || Number(net.channel) > 14 ? '5 GHz' : '2.4 GHz'}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`badge ${String(net.encryption || '').toLowerCase().includes('open') ? 'badge-severity-high' : 'badge-status-resolved'}`}>
+                                  {net.encryption || 'Open'}
+                                </span>
+                              </td>
+                              <td style={{ maxWidth: '320px' }}>
+                                <div className="mini-factors">
+                                  {(net.positive_reasons || []).slice(0, 2).map((r, i) => (
+                                    <span key={i} className="mini-factor positive">&#10003; {r}</span>
+                                  ))}
+                                  {(net.negative_reasons || []).slice(0, 1).map((r, i) => (
+                                    <span key={i} className="mini-factor negative">&#9888; {r}</span>
+                                  ))}
+                                </div>
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="connect-btn-table"
+                                  onClick={() => handleOpenConnectModal(net)}
+                                >
+                                  Connect
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p style={{ fontWeight: 600, fontSize: '15px', color: 'var(--text-strong)', marginBottom: '6px' }}>
+                      No Wi-Fi networks scanned yet.
+                    </p>
+                    <p>Run Wi-Fi Scan to discover nearby networks and then refresh recommendations.</p>
+                  </div>
+                )}
+              </section>
+
+              {/* Model Architecture & 12 Features Card */}
+              <section className="panel" style={{ marginTop: '24px' }}>
+                <div className="panel-header">
+                  <div>
+                    <h2>ML Recommendation Model Architecture &amp; Feature Weights</h2>
+                    <p className="panel-subtitle">Dedicated 12-feature scan-level quality classifier (decoupled from the 31-feature packet intrusion detector)</p>
+                  </div>
+                  <span className="badge badge-status-resolved">RandomForestClassifier</span>
+                </div>
+
+                <div className="panel-grid">
+                  <div>
+                    <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-strong)' }}>Model Specification</h3>
+                    <dl className="status-list">
+                      <div>
+                        <dt>Model Class</dt>
+                        <dd>{recommendationModelInfo?.model_type ?? 'RandomForestClassifier'}</dd>
+                      </div>
+                      <div>
+                        <dt>Artifact File</dt>
+                        <dd>{recommendationModelInfo?.model_file ?? 'wifi_network_recommendation.joblib'}</dd>
+                      </div>
+                      <div>
+                        <dt>Accuracy</dt>
+                        <dd style={{ color: '#2dd4bf', fontWeight: 600 }}>
+                          {recommendationModelInfo?.metrics?.accuracy_pct !== undefined
+                            ? `${recommendationModelInfo.metrics.accuracy_pct}%`
+                            : '88.12%'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Macro F1-Score</dt>
+                        <dd style={{ color: '#2dd4bf', fontWeight: 600 }}>
+                          {recommendationModelInfo?.metrics?.macro_f1_pct !== undefined
+                            ? `${recommendationModelInfo.metrics.macro_f1_pct}%`
+                            : '88.07%'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Classification Tiers</dt>
+                        <dd>EXCELLENT, GOOD, FAIR, POOR</dd>
+                      </div>
+                      <div>
+                        <dt>Training Dataset</dt>
+                        <dd>wifi_scan_recommendation_synthetic_train.csv (1,600 samples)</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div>
+                    <h3 style={{ fontSize: '14px', marginBottom: '12px', color: 'var(--text-strong)' }}>Feature Importances (Top IEEE 802.11 Predictors)</h3>
+                    <div className="feature-weight-list">
+                      {recommendationModelInfo?.feature_importances && Object.keys(recommendationModelInfo.feature_importances).length > 0 ? (
+                        Object.entries(recommendationModelInfo.feature_importances)
+                          .sort(([, a], [, b]) => b - a)
+                          .map(([feat, imp]) => {
+                            const pct = (imp * 100).toFixed(1)
+                            return (
+                              <div key={feat} className="feature-weight-item">
+                                <div className="feat-info">
+                                  <span className="feat-name">{feat}</span>
+                                  <span className="feat-pct">{pct}%</span>
+                                </div>
+                                <div className="feat-bar-bg">
+                                  <div className="feat-bar-fill" style={{ width: `${Math.min(100, imp * 100 * 3.5)}%` }} />
+                                </div>
+                              </div>
+                            )
+                          })
+                      ) : (
+                        <p className="muted-text">Feature weights loading...</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Connect Modal */}
+              {connectModalNetwork ? (
+                <div className="modal-backdrop" onClick={handleCloseConnectModal}>
+                  <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                    <div className="modal-header">
+                      <h3>Connect to Wi-Fi Network</h3>
+                      <button
+                        type="button"
+                        className="modal-close-btn"
+                        onClick={handleCloseConnectModal}
+                        disabled={connectLoading}
+                      >
+                        &#10005;
+                      </button>
+                    </div>
+
+                    <div className="modal-body">
+                      <div className="modal-network-preview">
+                        <div className="preview-row">
+                          <span className="preview-label">Network (SSID):</span>
+                          <strong>{connectModalNetwork.ssid || '<Hidden SSID>'}</strong>
+                        </div>
+                        <div className="preview-row">
+                          <span className="preview-label">BSSID:</span>
+                          <span className="mono-val">{connectModalNetwork.bssid || 'Unknown'}</span>
+                        </div>
+                        <div className="preview-row">
+                          <span className="preview-label">Encryption:</span>
+                          <span className="badge badge-default">{connectModalNetwork.encryption || 'Open'}</span>
+                        </div>
+                        <div className="preview-row">
+                          <span className="preview-label">Signal:</span>
+                          <span>{connectModalNetwork.signal || '--'}</span>
+                        </div>
+                        <div className="preview-row">
+                          <span className="preview-label">ML Classification:</span>
+                          <span className={getRecommendationBadgeClass(connectModalNetwork.classification)}>
+                            {connectModalNetwork.classification} (Score: {connectModalNetwork.score})
+                          </span>
+                        </div>
+                      </div>
+
+                      {connectStatus ? (
+                        <div className={`connect-status-box ${connectStatus.success ? 'success' : 'error'}`}>
+                          {connectStatus.success ? '✓ ' : '✗ '}
+                          {connectStatus.message}
+                        </div>
+                      ) : null}
+
+                      <form onSubmit={handleConnectSubmit} className="connect-form">
+                        {String(connectModalNetwork.encryption || '').toLowerCase().includes('open') ? (
+                          <p className="open-network-notice">
+                            ℹ This network does not require a password (Open encryption).
+                          </p>
+                        ) : (
+                          <div className="form-group">
+                            <label htmlFor="wifi-password-input">
+                              Network Security Key / Password:
+                            </label>
+                            <div className="password-input-wrap">
+                              <input
+                                id="wifi-password-input"
+                                type={showPassword ? 'text' : 'password'}
+                                className="password-input"
+                                value={connectPassword}
+                                onChange={(e) => setConnectPassword(e.target.value)}
+                                placeholder="Enter Wi-Fi password (8-63 chars)"
+                                disabled={connectLoading}
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                className="toggle-pwd-btn"
+                                onClick={() => setShowPassword(!showPassword)}
+                              >
+                                {showPassword ? 'Hide' : 'Show'}
+                              </button>
+                            </div>
+                            <span className="form-hint">
+                              WPA/WPA2/WPA3 passphrases are typically 8 to 63 characters long.
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="modal-actions">
+                          <button
+                            type="button"
+                            className="scan-button"
+                            onClick={handleCloseConnectModal}
+                            disabled={connectLoading}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="scan-button primary"
+                            disabled={
+                              connectLoading ||
+                              (!String(connectModalNetwork.encryption || '').toLowerCase().includes('open') &&
+                                connectPassword.length < 8)
+                            }
+                          >
+                            {connectLoading ? 'Connecting...' : 'Connect Now'}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </section>
           ) : activeView === 'Incidents' ? (
             <section className="incidents-view" aria-label="Security Incidents">

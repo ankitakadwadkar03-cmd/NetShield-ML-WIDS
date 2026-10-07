@@ -1,0 +1,124 @@
+{
+  "model_name": "wifi_network_recommendation.joblib",
+  "algorithm": "RandomForestClassifier",
+  "n_estimators": 100,
+  "max_depth": 12,
+  "feature_count": 12,
+  "features": [
+    "signal_strength_dbm",
+    "signal_quality_pct",
+    "channel_number",
+    "band_is_5ghz",
+    "security_level_rank",
+    "is_open_network",
+    "is_hidden_ssid",
+    "channel_congestion_count",
+    "co_channel_interference_risk",
+    "nearby_ap_density",
+    "has_known_vendor",
+    "estimated_snr_proxy"
+  ],
+  "classes": [
+    "POOR",
+    "FAIR",
+    "GOOD",
+    "EXCELLENT"
+  ],
+  "dataset_type": "SYNTHETIC_DEMO (IEEE 802.11 QoS & Propagation Model)",
+  "train_samples": 1280,
+  "test_samples": 320,
+  "metrics": {
+    "accuracy": 88.12,
+    "macro_precision": 87.56,
+    "macro_recall": 88.68,
+    "macro_f1": 88.07,
+    "weighted_f1": 88.18
+  },
+  "confusion_matrix": {
+    "labels": [
+      "POOR",
+      "FAIR",
+      "GOOD",
+      "EXCELLENT"
+    ],
+    "matrix": [
+      [
+        66,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        22,
+        4,
+        0
+      ],
+      [
+        0,
+        6,
+        92,
+        11
+      ],
+      [
+        0,
+        0,
+        17,
+        102
+      ]
+    ]
+  },
+  "classification_report": {
+    "POOR": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 66.0
+    },
+    "FAIR": {
+      "precision": 0.7857142857142857,
+      "recall": 0.8461538461538461,
+      "f1-score": 0.8148148148148148,
+      "support": 26.0
+    },
+    "GOOD": {
+      "precision": 0.8141592920353983,
+      "recall": 0.8440366972477065,
+      "f1-score": 0.8288288288288288,
+      "support": 109.0
+    },
+    "EXCELLENT": {
+      "precision": 0.9026548672566371,
+      "recall": 0.8571428571428571,
+      "f1-score": 0.8793103448275862,
+      "support": 119.0
+    },
+    "accuracy": 0.88125,
+    "macro avg": {
+      "precision": 0.8756321112515802,
+      "recall": 0.8868333501361024,
+      "f1-score": 0.8807384971178075,
+      "support": 320.0
+    },
+    "weighted avg": {
+      "precision": 0.8830870733249052,
+      "recall": 0.88125,
+      "f1-score": 0.8817670580062821,
+      "support": 320.0
+    }
+  },
+  "feature_importances": {
+    "security_level_rank": 19.57,
+    "signal_quality_pct": 17.82,
+    "signal_strength_dbm": 16.2,
+    "estimated_snr_proxy": 14.76,
+    "channel_congestion_count": 11.55,
+    "is_open_network": 6.86,
+    "channel_number": 5.07,
+    "nearby_ap_density": 3.46,
+    "band_is_5ghz": 2.01,
+    "co_channel_interference_risk": 1.48,
+    "has_known_vendor": 0.96,
+    "is_hidden_ssid": 0.26
+  }
+}
