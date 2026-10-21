@@ -1,0 +1,372 @@
+diff --git a/frontend/src/App.css b/frontend/src/App.css
+index a3665d6..f07d816 100644
+--- a/frontend/src/App.css
++++ b/frontend/src/App.css
+@@ -1832,3 +1832,313 @@ tbody tr:last-child td {
+   gap: 10px;
+   margin-top: 8px;
+ }
++
++
++/* =========================================================================
++   Incident Drawer & Forensics Overlay
++   ========================================================================= */
++.incident-drawer-backdrop {
++  position: fixed;
++  inset: 0;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  width: 100vw;
++  height: 100vh;
++  background: rgba(8, 13, 26, 0.75);
++  backdrop-filter: blur(5px);
++  z-index: 2000;
++  display: flex;
++  justify-content: flex-end;
++}
++
++.incident-drawer {
++  width: 100%;
++  max-width: 500px;
++  height: 100%;
++  background: #0f172a;
++  border-left: 1px solid rgba(56, 189, 248, 0.2);
++  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.6);
++  display: flex;
++  flex-direction: column;
++  animation: slideDrawer 0.2s cubic-bezier(0.16, 1, 0.3, 1);
++  overflow-y: auto;
++  color: #f1f5f9;
++}
++
++@keyframes slideDrawer {
++  from {
++    transform: translateX(100%);
++  }
++  to {
++    transform: translateX(0);
++  }
++}
++
++.incident-drawer-header {
++  padding: 18px 22px;
++  border-bottom: 1px solid rgba(56, 189, 248, 0.2);
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  background: #0b1120;
++}
++
++.drawer-title-group h3 {
++  margin: 4px 0 0;
++  font-size: 1.15rem;
++  color: #f8fafc;
++}
++
++.drawer-pill {
++  font-size: 0.68rem;
++  font-weight: 700;
++  letter-spacing: 0.06em;
++  padding: 2px 7px;
++  border-radius: 4px;
++  background: rgba(20, 184, 166, 0.15);
++  color: #14b8a6;
++  border: 1px solid rgba(20, 184, 166, 0.3);
++  display: inline-block;
++}
++
++.modal-close-button {
++  background: transparent;
++  border: none;
++  color: #94a3b8;
++  font-size: 1.5rem;
++  cursor: pointer;
++  line-height: 1;
++}
++
++.modal-close-button:hover {
++  color: #f8fafc;
++}
++
++.incident-drawer-body {
++  padding: 20px 22px;
++  display: flex;
++  flex-direction: column;
++  gap: 16px;
++  flex: 1;
++}
++
++.drawer-verdict-card {
++  background: #0b1120;
++  border: 1px solid rgba(56, 189, 248, 0.2);
++  border-radius: 8px;
++  padding: 14px 16px;
++}
++
++.drawer-verdict-header {
++  display: flex;
++  gap: 8px;
++  flex-wrap: wrap;
++  align-items: center;
++  margin-bottom: 12px;
++}
++
++.badge-lg {
++  font-size: 0.85rem;
++  padding: 4px 10px;
++}
++
++.drawer-prob-bar {
++  display: flex;
++  flex-direction: column;
++  gap: 6px;
++}
++
++.drawer-prob-labels {
++  display: flex;
++  justify-content: space-between;
++  font-size: 0.78rem;
++  color: #94a3b8;
++}
++
++.mini-meter-track {
++  width: 100%;
++  background: #1e293b;
++  border-radius: 999px;
++  overflow: hidden;
++}
++
++.mini-meter-fill {
++  height: 100%;
++  border-radius: 999px;
++  transition: width 0.3s ease;
++}
++
++.drawer-section {
++  display: flex;
++  flex-direction: column;
++  gap: 8px;
++}
++
++.drawer-section h4 {
++  margin: 0;
++  font-size: 0.85rem;
++  color: #cbd5e1;
++}
++
++.drawer-metrics-grid {
++  display: grid;
++  grid-template-columns: repeat(2, minmax(0, 1fr));
++  gap: 8px;
++}
++
++.drawer-metric-item {
++  background: #0b1120;
++  border: 1px solid rgba(56, 189, 248, 0.15);
++  border-radius: 6px;
++  padding: 8px 10px;
++  display: flex;
++  flex-direction: column;
++  gap: 2px;
++}
++
++.drawer-metric-label {
++  font-size: 0.7rem;
++  color: #94a3b8;
++  text-transform: uppercase;
++  letter-spacing: 0.04em;
++}
++
++.drawer-metric-val {
++  font-size: 0.82rem;
++  color: #f1f5f9;
++  font-family: monospace;
++  word-break: break-all;
++}
++
++.drawer-section-header {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++}
++
++.drawer-json-note {
++  font-size: 0.7rem;
++  color: #64748b;
++  font-family: monospace;
++}
++
++.drawer-json-actions {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++}
++
++.drawer-json-copy-btn,
++.drawer-json-toggle-btn {
++  background: rgba(56, 189, 248, 0.08);
++  border: 1px solid rgba(56, 189, 248, 0.25);
++  color: #38bdf8;
++  font-size: 0.72rem;
++  font-weight: 600;
++  padding: 4px 10px;
++  border-radius: 4px;
++  cursor: pointer;
++  transition: all 0.15s ease;
++  display: inline-flex;
++  align-items: center;
++  gap: 4px;
++}
++
++.drawer-json-copy-btn:hover,
++.drawer-json-toggle-btn:hover {
++  background: rgba(56, 189, 248, 0.18);
++  border-color: #38bdf8;
++  color: #ffffff;
++}
++
++.drawer-json-copy-btn.copy-error {
++  background: rgba(239, 68, 68, 0.15);
++  border-color: #ef4444;
++  color: #f87171;
++}
++
++.scan-button.button-error {
++  background: rgba(239, 68, 68, 0.2);
++  border-color: #ef4444;
++  color: #f87171;
++}
++
++.drawer-json-toggle-btn {
++  background: rgba(20, 184, 166, 0.1);
++  border-color: rgba(20, 184, 166, 0.3);
++  color: #14b8a6;
++}
++
++.drawer-json-toggle-btn:hover {
++  background: rgba(20, 184, 166, 0.22);
++  border-color: #14b8a6;
++  color: #ffffff;
++}
++
++.drawer-json-collapsed-box {
++  background: #080d1a;
++  border: 1px dashed rgba(56, 189, 248, 0.25);
++  border-radius: 6px;
++  padding: 14px 16px;
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  gap: 12px;
++  cursor: pointer;
++  transition: all 0.15s ease;
++}
++
++.drawer-json-collapsed-box:hover {
++  background: rgba(15, 23, 42, 0.85);
++  border-color: #38bdf8;
++}
++
++.drawer-json-collapsed-text {
++  font-size: 0.76rem;
++  color: #94a3b8;
++  font-family: monospace;
++}
++
++.drawer-json-collapsed-link {
++  font-size: 0.74rem;
++  font-weight: 600;
++  color: #14b8a6;
++  white-space: nowrap;
++}
++
++.drawer-json-collapsed-box:hover .drawer-json-collapsed-link {
++  text-decoration: underline;
++  color: #38bdf8;
++}
++
++.drawer-json-viewer {
++  background: #080d1a;
++  border: 1px solid rgba(56, 189, 248, 0.2);
++  border-radius: 6px;
++  padding: 12px;
++  max-height: 260px;
++  overflow: auto;
++  font-family: monospace;
++  font-size: 0.75rem;
++  line-height: 1.4;
++  color: #38bdf8;
++  margin: 0;
++}
++
++.incident-drawer-footer {
++  padding: 14px 22px;
++  border-top: 1px solid rgba(56, 189, 248, 0.2);
++  background: #0b1120;
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  gap: 10px;
++}
++
++@media (max-width: 768px) {
++  .incident-drawer {
++    max-width: 100%;
++  }
++}
+
+diff --git a/frontend/src/App.jsx b/frontend/src/App.jsx
+index a25d276..7e6b78c 100644
+--- a/frontend/src/App.jsx
++++ b/frontend/src/App.jsx
+@@ -1,4 +1,5 @@
+ import { useEffect, useState } from 'react'
++import { createPortal } from 'react-dom'
+ import './App.css'
+ 
+ const sidebarItems = [
+@@ -169,6 +170,9 @@ function App() {
+   const [incidents, setIncidents] = useState([])
+   const [incidentsLoading, setIncidentsLoading] = useState(false)
+   const [incidentsError, setIncidentsError] = useState('')
++  const [selectedIncident, setSelectedIncident] = useState(null)
++  const [incidentCopyStatus, setIncidentCopyStatus] = useState(null)
++  const [incidentJsonExpanded, setIncidentJsonExpanded] = useState(false)
+   const [reportIncidents, setReportIncidents] = useState([])
+   const [reportsLoading, setReportsLoading] = useState(false)
+   const [reportsError, setReportsError] = useState('')
+@@ -762,6 +766,32 @@ function App() {
+     setConnectStatus(null)
+   }
+ 
++  const handleCopyIncidentJson = async (incident) => {
++    if (!incident) return
++    const text = JSON.stringify(incident, null, 2)
++    try {
++      if (navigator?.clipboard?.writeText) {
++        await navigator.clipboard.writeText(text)
++      } else {
++        const textArea = document.createElement('textarea')
++        textArea.value = text
++        textArea.style.position = 'fixed'
++        textArea.style.left = '-999999px'
++        document.body.appendChild(textArea)
++        textArea.focus()
++        textArea.select()
++        const successful = document.execCommand('copy')
++        document.body.removeChild(textArea)
++        if (!successful) throw new Error('execCommand failed')
++      }
++      setIncidentCopyStatus('success')
++      setTimeout(() => setIncidentCopyStatus(null), 2000)
++    } catch {
++      setIncidentCopyStatus('error')
++      setTimeout(() => setIncidentCopyStatus(null), 3000)
++    }
++  }
++
+   const handleCloseConnectModal = () => {
+     if (connectLoading) return
+     setConnectModalNetwork(null)
